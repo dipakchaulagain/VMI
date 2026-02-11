@@ -1,9 +1,11 @@
 from flask import Flask
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
+from flask_migrate import Migrate
 from .config import config
 
 db = SQLAlchemy()
+migrate = Migrate()
 
 
 def create_app(config_name='default'):
@@ -13,7 +15,9 @@ def create_app(config_name='default'):
     
     # Initialize extensions
     db.init_app(app)
-    CORS(app, supports_credentials=True, origins=['http://localhost:3000'])
+    migrate.init_app(app, db)
+    # Allow CORS from any origin (for LAN/IP-based access)
+    CORS(app, supports_credentials=True, origins='*')
     
     # Register blueprints
     from .routes.auth import auth_bp
@@ -23,6 +27,9 @@ def create_app(config_name='default'):
     from .routes.sync import sync_bp
     from .routes.changes import changes_bp
     from .routes.networks import networks_bp
+    from .routes.settings import settings_bp
+    from .routes.hosts import hosts_bp
+    from .routes.audit import audit_bp
     
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(users_bp, url_prefix='/api/users')
@@ -31,10 +38,21 @@ def create_app(config_name='default'):
     app.register_blueprint(sync_bp, url_prefix='/api/sync')
     app.register_blueprint(changes_bp, url_prefix='/api/changes')
     app.register_blueprint(networks_bp, url_prefix='/api/networks')
+    app.register_blueprint(settings_bp, url_prefix='/api/settings')
+    app.register_blueprint(hosts_bp, url_prefix='/api/hosts')
+    app.register_blueprint(audit_bp, url_prefix='/api/audit')
     
     # Health check endpoint
     @app.route('/api/health')
     def health():
         return {'status': 'healthy'}
+    
+    # Initialize scheduler after app is created
+    @app.before_request
+    def init_scheduler_once():
+        if not hasattr(app, '_scheduler_initialized'):
+            app._scheduler_initialized = True
+            from .services.scheduler import init_scheduler
+            init_scheduler(app)
     
     return app

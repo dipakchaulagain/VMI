@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { vmsApi, changesApi, ownersApi } from '../services/api';
+import { vmsApi, changesApi, ownersApi, hostsApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import {
     Server,
@@ -19,7 +19,8 @@ import {
     Edit2,
     Save,
     ArrowLeft,
-    Trash2
+    Trash2,
+    Monitor
 } from 'lucide-react';
 
 export default function VMDetail() {
@@ -31,11 +32,13 @@ export default function VMDetail() {
     const [loading, setLoading] = useState(true);
     const [editMode, setEditMode] = useState(false);
     const [ownershipEditing, setOwnershipEditing] = useState(false);
+    const [guestInfoEditing, setGuestInfoEditing] = useState(false);
     const [manualData, setManualData] = useState({});
     const [newTagValue, setNewTagValue] = useState('');
     const [addingTag, setAddingTag] = useState(false);
     const [addingIp, setAddingIp] = useState(false);
     const [newIp, setNewIp] = useState('');
+    const [hostMap, setHostMap] = useState({});
     const { isAdmin } = useAuth();
 
     useEffect(() => {
@@ -44,22 +47,36 @@ export default function VMDetail() {
 
     const loadVM = async () => {
         try {
-            const [vmRes, changesRes, ownersRes] = await Promise.all([
+            const [vmRes, changesRes, ownersRes, hostsRes] = await Promise.all([
                 vmsApi.get(id),
                 changesApi.getVmChanges(id, { per_page: 20 }),
-                ownersApi.list({ per_page: 100 })
+                ownersApi.list({ per_page: 100 }),
+                hostsApi.list()
             ]);
 
             setVm(vmRes.data.vm);
             setChanges(changesRes.data.changes);
             setOwners(ownersRes.data.owners);
 
+            if (hostsRes.data && hostsRes.data.hosts) {
+                const map = {};
+                hostsRes.data.hosts.forEach(h => {
+                    if (h.hypervisor_ip) map[h.hypervisor_ip] = h.hostname;
+                });
+                setHostMap(map);
+            }
+
             setManualData({
                 business_owner_id: vmRes.data.vm.business_owner_id || '',
                 technical_owner_id: vmRes.data.vm.technical_owner_id || '',
                 project_name: vmRes.data.vm.project_name || '',
                 environment: vmRes.data.vm.environment || '',
-                notes: vmRes.data.vm.notes || ''
+                project_name: vmRes.data.vm.project_name || '',
+                environment: vmRes.data.vm.environment || '',
+                notes: vmRes.data.vm.notes || '',
+                manual_hostname: vmRes.data.vm.hostname || '',
+                manual_os_type: vmRes.data.vm.os_type || '',
+                manual_os_family: vmRes.data.vm.os_family || ''
             });
         } catch (error) {
             console.error('Failed to load VM:', error);
@@ -163,6 +180,24 @@ export default function VMDetail() {
         }
     };
 
+    const handleGuestInfoSave = async () => {
+        try {
+            await vmsApi.updateManual(id, {
+                manual_hostname: manualData.manual_hostname,
+                override_hostname: true,
+                manual_os_type: manualData.manual_os_type,
+                override_os_type: true,
+                manual_os_family: manualData.manual_os_family,
+                override_os_family: true
+            });
+            await loadVM();
+            setGuestInfoEditing(false);
+        } catch (error) {
+            console.error('Failed to save guest info:', error);
+            alert('Failed to save guest info details');
+        }
+    };
+
     if (loading) {
         return (
             <div className="loading-overlay" style={{ position: 'relative', minHeight: '400px' }}>
@@ -233,6 +268,89 @@ export default function VMDetail() {
             {/* Info Grid */}
             {/* Info Grid */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px', marginBottom: '24px' }}>
+                {/* Guest Info */}
+                <div className="card">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                        <h3 className="card-title" style={{ margin: 0 }}>
+                            <Monitor size={18} style={{ marginRight: '8px' }} /> Guest Info
+                        </h3>
+                        {isAdmin && !guestInfoEditing && (
+                            <button className="btn btn-sm btn-secondary" onClick={() => setGuestInfoEditing(true)}>Edit</button>
+                        )}
+                        {guestInfoEditing && (
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <button className="btn btn-sm btn-primary" onClick={handleGuestInfoSave}>Save</button>
+                                <button className="btn btn-sm btn-secondary" onClick={() => {
+                                    setGuestInfoEditing(false);
+                                    setManualData(prev => ({
+                                        ...prev,
+                                        manual_hostname: vm.hostname || '',
+                                        manual_os_type: vm.os_type || '',
+                                        manual_os_family: vm.os_family || ''
+                                    }));
+                                }}>Cancel</button>
+                            </div>
+                        )}
+                    </div>
+
+                    {guestInfoEditing ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            <div className="form-group" style={{ marginBottom: 0 }}>
+                                <label className="form-label">Hostname</label>
+                                <input
+                                    type="text"
+                                    className="form-input"
+                                    value={manualData.manual_hostname}
+                                    onChange={(e) => setManualData({ ...manualData, manual_hostname: e.target.value })}
+                                />
+                            </div>
+                            <div className="form-group" style={{ marginBottom: 0 }}>
+                                <label className="form-label">OS Type</label>
+                                <input
+                                    type="text"
+                                    className="form-input"
+                                    value={manualData.manual_os_type}
+                                    onChange={(e) => setManualData({ ...manualData, manual_os_type: e.target.value })}
+                                    placeholder="e.g. Windows Server 2022"
+                                />
+                            </div>
+                            <div className="form-group" style={{ marginBottom: 0 }}>
+                                <label className="form-label">OS Family</label>
+                                <select
+                                    className="form-input form-select"
+                                    value={manualData.manual_os_family}
+                                    onChange={(e) => setManualData({ ...manualData, manual_os_family: e.target.value })}
+                                >
+                                    <option value="">Select Family</option>
+                                    <option value="Windows">Windows</option>
+                                    <option value="Linux">Linux</option>
+                                    <option value="Other">Other</option>
+                                    <option value="N/A">N/A</option>
+                                </select>
+                            </div>
+                        </div>
+                    ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: 'var(--text-secondary)' }}>Hostname</span>
+                                <span>{vm.hostname || '-'}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: 'var(--text-secondary)' }}>OS Type</span>
+                                <span>{vm.os_type || '-'}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: 'var(--text-secondary)' }}>OS Family</span>
+                                <span>{vm.os_family || '-'}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: 'var(--text-secondary)' }}>Primary IP</span>
+                                <span style={{ fontFamily: 'monospace' }}>{vm.ip_address || '-'}</span>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
                 {/* Resources */}
                 <div className="card">
                     <h3 className="card-title" style={{ marginBottom: '16px' }}>
@@ -270,15 +388,11 @@ export default function VMDetail() {
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                             <span style={{ color: 'var(--text-secondary)' }}>Host</span>
-                            <span>{vm.host_identifier || '-'}</span>
+                            <span>{hostMap[vm.host_identifier] || vm.host_identifier || '-'}</span>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                             <span style={{ color: 'var(--text-secondary)' }}>Hypervisor</span>
                             <span>{vm.hypervisor_type || '-'}</span>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <span style={{ color: 'var(--text-secondary)' }}>OS</span>
-                            <span style={{ textAlign: 'right', maxWidth: '200px' }}>{vm.os_type || '-'}</span>
                         </div>
                     </div>
                 </div>
@@ -460,10 +574,11 @@ export default function VMDetail() {
                         <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', textAlign: 'center' }}>No tags assigned</p>
                     )}
                 </div>
-            </div>
+            </div >
 
             {/* Network Interfaces Section */}
-            <div className="card" style={{ marginBottom: '24px' }}>
+            < div className="card" style={{ marginBottom: '24px' }
+            }>
                 <h3 className="card-title" style={{ marginBottom: '16px' }}>
                     <Network size={18} style={{ marginRight: '8px' }} /> Network Interfaces
                 </h3>
@@ -567,40 +682,42 @@ export default function VMDetail() {
                         </div>
                     )}
                 </div>
-            </div>
+            </div >
 
             {/* Notes */}
             {/* Notes Section */}
-            {(isAdmin || vm.notes) && (
-                <div className="card" style={{ marginBottom: '24px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                        <h3 className="card-title" style={{ margin: 0 }}>Notes</h3>
-                        {isAdmin && !editMode && (
-                            <button className="btn btn-sm btn-secondary" onClick={() => setEditMode(true)}>Edit</button>
-                        )}
-                        {editMode && (
-                            <div style={{ display: 'flex', gap: '8px' }}>
-                                <button className="btn btn-sm btn-primary" onClick={handleSaveManual}>Save</button>
-                                <button className="btn btn-sm btn-secondary" onClick={() => {
-                                    setEditMode(false);
-                                    setManualData({ ...manualData, notes: vm.notes || '' });
-                                }}>Cancel</button>
-                            </div>
+            {
+                (isAdmin || vm.notes) && (
+                    <div className="card" style={{ marginBottom: '24px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                            <h3 className="card-title" style={{ margin: 0 }}>Notes</h3>
+                            {isAdmin && !editMode && (
+                                <button className="btn btn-sm btn-secondary" onClick={() => setEditMode(true)}>Edit</button>
+                            )}
+                            {editMode && (
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                    <button className="btn btn-sm btn-primary" onClick={handleSaveManual}>Save</button>
+                                    <button className="btn btn-sm btn-secondary" onClick={() => {
+                                        setEditMode(false);
+                                        setManualData({ ...manualData, notes: vm.notes || '' });
+                                    }}>Cancel</button>
+                                </div>
+                            )}
+                        </div>
+                        {editMode ? (
+                            <textarea
+                                className="form-input"
+                                rows={4}
+                                value={manualData.notes}
+                                onChange={(e) => setManualData({ ...manualData, notes: e.target.value })}
+                                placeholder="Add notes about this VM..."
+                            />
+                        ) : (
+                            <p style={{ color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{vm.notes || 'No notes'}</p>
                         )}
                     </div>
-                    {editMode ? (
-                        <textarea
-                            className="form-input"
-                            rows={4}
-                            value={manualData.notes}
-                            onChange={(e) => setManualData({ ...manualData, notes: e.target.value })}
-                            placeholder="Add notes about this VM..."
-                        />
-                    ) : (
-                        <p style={{ color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{vm.notes || 'No notes'}</p>
-                    )}
-                </div>
-            )}
+                )
+            }
 
             {/* Change History */}
             <div className="card">
@@ -647,6 +764,6 @@ export default function VMDetail() {
                     </div>
                 )}
             </div>
-        </div>
+        </div >
     );
 }

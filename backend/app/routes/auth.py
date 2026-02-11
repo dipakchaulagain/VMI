@@ -1,10 +1,11 @@
 from flask import Blueprint, request, jsonify, current_app, g
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import secrets
 import hashlib
 from app import db
 from app.models.user import User, UserSession
 from app.utils.decorators import login_required, hash_token
+from app.utils.audit import log_action
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -38,7 +39,7 @@ def login():
     
     # Calculate expiration (max age = 1 day)
     max_age = current_app.config['SESSION_MAX_AGE']
-    expires_at = datetime.utcnow() + timedelta(seconds=max_age)
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=max_age)
     
     # Create session
     session = UserSession(
@@ -50,10 +51,13 @@ def login():
     )
     
     # Update last login
-    user.last_login_at = datetime.utcnow()
+    user.last_login_at = datetime.now(timezone.utc)
     
     db.session.add(session)
     db.session.commit()
+    
+    # Audit log
+    log_action('LOGIN', 'USER', str(user.id), {'ip': request.remote_addr}, user=user)
     
     return jsonify({
         'token': token,
@@ -69,6 +73,9 @@ def logout():
     """User logout endpoint"""
     g.current_session.is_valid = False
     db.session.commit()
+    
+    # Audit log
+    log_action('LOGOUT', 'USER', str(g.current_user.id), user=g.current_user)
     
     return jsonify({'message': 'Logged out successfully'})
 
@@ -118,7 +125,7 @@ def reset_password():
     # Update password
     user.set_password(new_password)
     user.must_reset_password = False
-    user.updated_at = datetime.utcnow()
+    user.updated_at = datetime.now(timezone.utc)
     
     db.session.commit()
     

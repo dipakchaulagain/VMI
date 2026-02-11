@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { vmsApi } from '../services/api';
+import { vmsApi, ownersApi, authApi } from '../services/api';
 import {
     Server,
     Search,
@@ -11,7 +11,8 @@ import {
     ChevronRight,
     Eye,
     X,
-    Layout
+    Layout,
+    UserCog
 } from 'lucide-react';
 
 export default function VMInventory() {
@@ -24,15 +25,60 @@ export default function VMInventory() {
     const [page, setPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
     const [total, setTotal] = useState(0);
+    const [sortBy, setSortBy] = useState('vm_name');
+    const [sortOrder, setSortOrder] = useState('asc');
+    const [osFamily, setOsFamily] = useState('');
+    const [tag, setTag] = useState('');
+    const [ownerId, setOwnerId] = useState('');
+    const [tags, setTags] = useState([]);
+    const [owners, setOwners] = useState([]);
+    const [currentUser, setCurrentUser] = useState(null);
+
+    // Modal state for Quick Assign Tech Owner
+    const [showAssignModal, setShowAssignModal] = useState(false);
+    const [selectedVm, setSelectedVm] = useState(null);
+    const [selectedTechOwner, setSelectedTechOwner] = useState('');
+    const [assigning, setAssigning] = useState(false);
 
     // Get filter params from URL
     const ownerIdParam = searchParams.get('owner_id');
     const networkParam = searchParams.get('network');
-    const filterActive = ownerIdParam || networkParam;
+    const hostIdentifierParam = searchParams.get('host_identifier');
+    const filterActive = ownerIdParam || networkParam || hostIdentifierParam;
 
     useEffect(() => {
         loadVMs();
-    }, [page, platform, powerState, ownerIdParam, networkParam]);
+        checkUserRole();
+    }, [page, platform, powerState, ownerIdParam, networkParam, hostIdentifierParam, osFamily, tag, ownerId, sortBy, sortOrder]);
+
+    const checkUserRole = async () => {
+        const userStr = localStorage.getItem('user');
+        if (userStr) {
+            try {
+                const user = JSON.parse(userStr);
+                setCurrentUser(user);
+            } catch (e) {
+                console.error("Error parsing user from local storage", e);
+            }
+        }
+    };
+
+    // Load tags and owners for filter dropdowns
+    useEffect(() => {
+        const loadFilterData = async () => {
+            try {
+                const [summaryRes, ownersRes] = await Promise.all([
+                    vmsApi.getSummary(),
+                    ownersApi.list()
+                ]);
+                if (summaryRes.data.tags) setTags(summaryRes.data.tags);
+                if (ownersRes.data.owners) setOwners(ownersRes.data.owners);
+            } catch (error) {
+                console.error('Failed to load filter data:', error);
+            }
+        };
+        loadFilterData();
+    }, []);
 
     const loadVMs = async () => {
         setLoading(true);
@@ -43,8 +89,13 @@ export default function VMInventory() {
                 search: search || undefined,
                 platform: platform || undefined,
                 power_state: powerState || undefined,
-                owner_id: ownerIdParam || undefined,
-                network: networkParam || undefined
+                network: networkParam || undefined,
+                host_identifier: hostIdentifierParam || undefined,
+                os_family: osFamily || undefined,
+                tag: tag || undefined,
+                owner_id: ownerIdParam || ownerId || undefined,
+                sort_by: sortBy,
+                order: sortOrder
             });
             setVms(response.data.vms);
             setTotalPages(response.data.pages);
@@ -56,10 +107,85 @@ export default function VMInventory() {
         }
     };
 
+    const handleOSTypeUpdate = async (vmId, newType) => {
+        if (!newType) return;
+        try {
+            await vmsApi.updateManual(vmId, {
+                override_os_type: true,
+                manual_os_type: newType
+            });
+            // Update local state
+            setVms(prev => prev.map(vm =>
+                vm.id === vmId ? { ...vm, os_type: newType } : vm
+            ));
+        } catch (error) {
+            console.error('Failed to update OS Type:', error);
+        }
+    };
+
+    const handleOSFamilyUpdate = async (vmId, newFamily) => {
+        if (!newFamily) return;
+        try {
+            await vmsApi.updateManual(vmId, {
+                override_os_family: true,
+                manual_os_family: newFamily
+            });
+            // Update local state
+            setVms(prev => prev.map(vm =>
+                vm.id === vmId ? { ...vm, os_family: newFamily } : vm
+            ));
+        } catch (error) {
+            console.error('Failed to update OS Family:', error);
+        }
+    };
+
+    const openAssignModal = (vm) => {
+        setSelectedVm(vm);
+        setSelectedTechOwner(vm.technical_owner_id || '');
+        setShowAssignModal(true);
+    };
+
+    const closeAssignModal = () => {
+        setShowAssignModal(false);
+        setSelectedVm(null);
+        setSelectedTechOwner('');
+    };
+
+    const handleAssignOwner = async () => {
+        if (!selectedVm) return;
+        setAssigning(true);
+        try {
+            await vmsApi.updateManual(selectedVm.id, {
+                technical_owner_id: selectedTechOwner || null
+            });
+
+            // Update local state
+            setVms(prev => prev.map(vm =>
+                vm.id === selectedVm.id ? { ...vm, technical_owner_id: selectedTechOwner } : vm
+            ));
+
+            closeAssignModal();
+        } catch (error) {
+            console.error('Failed to assign technical owner:', error);
+            alert('Failed to update technical owner');
+        } finally {
+            setAssigning(false);
+        }
+    };
+
     const handleSearch = (e) => {
         e.preventDefault();
         setPage(1);
         loadVMs();
+    };
+
+    const handleSort = (column) => {
+        if (sortBy === column) {
+            setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+        } else {
+            setSortBy(column);
+            setSortOrder('asc');
+        }
     };
 
     const clearFilters = () => {
@@ -74,6 +200,9 @@ export default function VMInventory() {
         platform: { label: 'Platform', visible: true },
         power_state: { label: 'Power', visible: true },
         cluster_name: { label: 'Cluster', visible: true },
+        host: { label: 'Host', visible: true },
+        os_type: { label: 'OS Type', visible: true },
+        os_family: { label: 'OS Family', visible: true },
         total_vcpus: { label: 'vCPUs', visible: false },
         memory_gb: { label: 'Memory', visible: true },
         total_disk_gb: { label: 'Storage', visible: true },
@@ -86,6 +215,8 @@ export default function VMInventory() {
             [key]: { ...prev[key], visible: !prev[key].visible }
         }));
     };
+
+    const isAdmin = currentUser?.role === 'admin';
 
     return (
         <div>
@@ -156,6 +287,45 @@ export default function VMInventory() {
                             <option value="SUSPENDED">Suspended</option>
                         </select>
 
+                        <select
+                            className="form-input form-select"
+                            value={osFamily}
+                            onChange={(e) => { setOsFamily(e.target.value); setPage(1); }}
+                            style={{ width: 'auto', minWidth: '140px' }}
+                        >
+                            <option value="">All OS Families</option>
+                            <option value="Windows">Windows</option>
+                            <option value="Linux">Linux</option>
+                            <option value="Other">Other</option>
+                            <option value="N/A">N/A</option>
+                        </select>
+
+                        <select
+                            className="form-input form-select"
+                            value={tag}
+                            onChange={(e) => { setTag(e.target.value); setPage(1); }}
+                            style={{ width: 'auto', minWidth: '140px' }}
+                        >
+                            <option value="">All Tags</option>
+                            {tags.map(t => (
+                                <option key={t} value={t}>{t}</option>
+                            ))}
+                        </select>
+
+                        {!ownerIdParam && (
+                            <select
+                                className="form-input form-select"
+                                value={ownerId}
+                                onChange={(e) => { setOwnerId(e.target.value); setPage(1); }}
+                                style={{ width: 'auto', minWidth: '150px' }}
+                            >
+                                <option value="">All Owners</option>
+                                {owners.map(o => (
+                                    <option key={o.id} value={o.id}>{o.full_name}</option>
+                                ))}
+                            </select>
+                        )}
+
                         <button type="submit" className="btn btn-primary">
                             <Filter size={16} /> Filter
                         </button>
@@ -223,16 +393,65 @@ export default function VMInventory() {
                     <table className="table">
                         <thead>
                             <tr>
-                                <th>VM Name</th> {/* Always shown */}
+                                <th onClick={() => handleSort('vm_name')} style={{ cursor: 'pointer' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                        VM Name {sortBy === 'vm_name' && (sortOrder === 'asc' ? '↑' : '↓')}
+                                    </div>
+                                </th>
                                 {columns.ip_address.visible && <th>IP Address</th>}
                                 {columns.tags.visible && <th>Tags</th>}
-                                {columns.platform.visible && <th>Platform</th>}
-                                {columns.power_state.visible && <th>Power</th>}
-                                {columns.cluster_name.visible && <th>Cluster</th>}
-                                {columns.total_vcpus.visible && <th>vCPUs</th>}
-                                {columns.memory_gb.visible && <th>Memory</th>}
-                                {columns.total_disk_gb.visible && <th>Storage</th>}
-                                {columns.environment.visible && <th>Environment</th>}
+                                {columns.platform.visible && (
+                                    <th onClick={() => handleSort('platform')} style={{ cursor: 'pointer' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                            Platform {sortBy === 'platform' && (sortOrder === 'asc' ? '↑' : '↓')}
+                                        </div>
+                                    </th>
+                                )}
+                                {columns.power_state.visible && (
+                                    <th onClick={() => handleSort('power_state')} style={{ cursor: 'pointer' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                            Power {sortBy === 'power_state' && (sortOrder === 'asc' ? '↑' : '↓')}
+                                        </div>
+                                    </th>
+                                )}
+                                {columns.cluster_name.visible && (
+                                    <th onClick={() => handleSort('cluster_name')} style={{ cursor: 'pointer' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                            Cluster {sortBy === 'cluster_name' && (sortOrder === 'asc' ? '↑' : '↓')}
+                                        </div>
+                                    </th>
+                                )}
+                                {columns.host.visible && <th>Host</th>}
+                                {columns.os_type.visible && <th>OS Type</th>}
+                                {columns.os_family.visible && <th>OS Family</th>}
+                                {columns.total_vcpus.visible && (
+                                    <th onClick={() => handleSort('total_vcpus')} style={{ cursor: 'pointer' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                            vCPUs {sortBy === 'total_vcpus' && (sortOrder === 'asc' ? '↑' : '↓')}
+                                        </div>
+                                    </th>
+                                )}
+                                {columns.memory_gb.visible && (
+                                    <th onClick={() => handleSort('memory_gb')} style={{ cursor: 'pointer' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                            Memory {sortBy === 'memory_gb' && (sortOrder === 'asc' ? '↑' : '↓')}
+                                        </div>
+                                    </th>
+                                )}
+                                {columns.total_disk_gb.visible && (
+                                    <th onClick={() => handleSort('total_disk_gb')} style={{ cursor: 'pointer' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                            Storage {sortBy === 'total_disk_gb' && (sortOrder === 'asc' ? '↑' : '↓')}
+                                        </div>
+                                    </th>
+                                )}
+                                {columns.environment.visible && (
+                                    <th onClick={() => handleSort('environment')} style={{ cursor: 'pointer' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                            Environment {sortBy === 'environment' && (sortOrder === 'asc' ? '↑' : '↓')}
+                                        </div>
+                                    </th>
+                                )}
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -305,6 +524,55 @@ export default function VMInventory() {
                                         <td style={{ color: 'var(--text-secondary)' }}>{vm.cluster_name || '-'}</td>
                                     )}
 
+                                    {/* Host */}
+                                    {columns.host.visible && (
+                                        <td style={{ color: 'var(--text-secondary)' }}>
+                                            {vm.host_hostname || vm.host_identifier || '-'}
+                                        </td>
+                                    )}
+
+                                    {/* OS Type */}
+                                    {columns.os_type.visible && (
+                                        <td>
+                                            {(!vm.os_type || vm.os_type === 'Not Specified') ? (
+                                                <select
+                                                    className="form-input form-select"
+                                                    style={{ padding: '2px 4px', fontSize: '0.875rem', height: 'auto', width: 'auto' }}
+                                                    value=""
+                                                    onChange={(e) => handleOSTypeUpdate(vm.id, e.target.value)}
+                                                >
+                                                    <option value="" disabled>Set OS</option>
+                                                    <option value="Windows">Windows</option>
+                                                    <option value="Linux">Linux</option>
+                                                </select>
+                                            ) : (
+                                                vm.os_type
+                                            )}
+                                        </td>
+                                    )}
+
+                                    {/* OS Family */}
+                                    {columns.os_family.visible && (
+                                        <td>
+                                            {(!vm.os_family || vm.os_family === 'Not Specified') ? (
+                                                <select
+                                                    className="form-input form-select"
+                                                    style={{ padding: '2px 4px', fontSize: '0.875rem', height: 'auto', width: 'auto' }}
+                                                    value=""
+                                                    onChange={(e) => handleOSFamilyUpdate(vm.id, e.target.value)}
+                                                >
+                                                    <option value="" disabled>Set Family</option>
+                                                    <option value="Windows">Windows</option>
+                                                    <option value="Linux">Linux</option>
+                                                    <option value="Other">Other</option>
+                                                    <option value="N/A">N/A</option>
+                                                </select>
+                                            ) : (
+                                                vm.os_family
+                                            )}
+                                        </td>
+                                    )}
+
                                     {/* vCPUs */}
                                     {columns.total_vcpus.visible && (
                                         <td>{vm.total_vcpus || '-'}</td>
@@ -332,9 +600,20 @@ export default function VMInventory() {
                                     )}
 
                                     <td>
-                                        <Link to={`/vms/${vm.id}`} className="btn btn-sm btn-secondary">
-                                            <Eye size={14} /> View
-                                        </Link>
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            <Link to={`/vms/${vm.id}`} className="btn btn-sm btn-secondary">
+                                                <Eye size={14} /> View
+                                            </Link>
+                                            {isAdmin && (
+                                                <button
+                                                    className="btn btn-sm btn-secondary"
+                                                    onClick={() => openAssignModal(vm)}
+                                                    title="Assign Technical Owner"
+                                                >
+                                                    <UserCog size={14} />
+                                                </button>
+                                            )}
+                                        </div>
                                     </td>
                                 </tr>
                             ))}
@@ -363,6 +642,54 @@ export default function VMInventory() {
                     >
                         Next <ChevronRight size={16} />
                     </button>
+                </div>
+            )}
+
+            {/* Quick Assign Tech Owner Modal */}
+            {showAssignModal && selectedVm && (
+                <div className="modal-overlay">
+                    <div className="modal-content" style={{ width: '400px', backgroundColor: 'var(--bg-secondary)' }}>
+                        <div className="modal-header">
+                            <h3>Assign Technical Owner</h3>
+                            <button className="btn btn-icon" onClick={closeAssignModal}>
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="modal-body">
+                            <div className="form-group">
+                                <label style={{ display: 'block', marginBottom: '8px' }}>VM Name</label>
+                                <div style={{ padding: '8px', background: 'var(--bg-tertiary)', borderRadius: '4px', marginBottom: '16px' }}>
+                                    {selectedVm.vm_name}
+                                </div>
+                            </div>
+
+                            <div className="form-group">
+                                <label htmlFor="techOwnerSelect" style={{ display: 'block', marginBottom: '8px' }}>Technical Owner</label>
+                                <select
+                                    id="techOwnerSelect"
+                                    className="form-input form-select"
+                                    value={selectedTechOwner}
+                                    onChange={(e) => setSelectedTechOwner(e.target.value)}
+                                    style={{ width: '100%' }}
+                                >
+                                    <option value="">Select Technical Owner</option>
+                                    {owners.map(owner => (
+                                        <option key={owner.id} value={owner.id}>
+                                            {owner.full_name} ({owner.email})
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+                        <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '24px' }}>
+                            <button className="btn btn-secondary" onClick={closeAssignModal} disabled={assigning}>
+                                Cancel
+                            </button>
+                            <button className="btn btn-primary" onClick={handleAssignOwner} disabled={assigning}>
+                                {assigning ? 'Saving...' : 'Save'}
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>

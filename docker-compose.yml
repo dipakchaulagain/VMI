@@ -11,8 +11,8 @@ services:
       POSTGRES_USER: vmi_user
       POSTGRES_PASSWORD: vmi_secret_2024
       TZ: Asia/Kathmandu
-    ports:
-      - "5432:5432"
+    # ports:
+    #   - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./backend/migrations:/docker-entrypoint-initdb.d:ro
@@ -53,7 +53,7 @@ services:
     container_name: vmi_frontend
     restart: unless-stopped
     environment:
-      VITE_API_URL: http://localhost:5000/api
+      # VITE_API_URL is now dynamically determined by the frontend based on window.location.hostname
       TZ: Asia/Kathmandu
     ports:
       - "3000:3000"

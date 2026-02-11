@@ -1,10 +1,12 @@
 from flask import Blueprint, request, jsonify, g
-from datetime import datetime
+from datetime import datetime, timezone
 from app import db
 from app.models.vm import VM, VMFact, VMNicFact, VMNicIpFact, VMDiskFact, VMManual, VMTag, VMIpManual, VMCustomField
 from app.models.owner import Owner
 from app.models.network import VMwareNetwork
+from app.models.host import Host
 from app.utils.decorators import login_required, admin_required, password_reset_not_required
+from app.utils.audit import log_action
 
 vms_bp = Blueprint('vms', __name__)
 
@@ -23,6 +25,10 @@ def list_vms():
     cluster = request.args.get('cluster', '').strip()
     owner_id = request.args.get('owner_id', type=int)
     network = request.args.get('network', '').strip()
+    host_identifier = request.args.get('host_identifier', '').strip()
+    os_type = request.args.get('os_type', '').strip()
+    os_family = request.args.get('os_family', '').strip()
+    tag = request.args.get('tag', '').strip()
     include_deleted = request.args.get('include_deleted', 'false').lower() == 'true'
     
     query = VM.query
@@ -90,12 +96,111 @@ def list_vms():
             )
         ).distinct()
     
-    query = query.order_by(VM.vm_name)
+    # Host identifier filter
+    if host_identifier:
+        if not hasattr(query, '_vmfact_joined'):
+            query = query.join(VMFact)
+        query = query.filter(VMFact.host_identifier == host_identifier)
+    
+    # OS Type filter
+    if os_type:
+        if not hasattr(query, '_vmfact_joined'):
+            query = query.join(VMFact)
+        query = query.filter(VMFact.os_type.ilike(f'%{os_type}%'))
+    
+    # OS Family filter
+    # OS Family filter
+    if os_family:
+        if not hasattr(query, '_vmfact_joined'):
+            query = query.join(VMFact)
+            query._vmfact_joined = True
+        
+        # Check if VMManual is already joined (unlikely here but good practice)
+        # Note: We use outerjoin because not all VMs have manual entries
+        # We catch the case where VMManual is missing using a property check specific to this request context if needed,
+        # but standard SQLAlchemy outerjoin is idempotent-ish if done correctly on query construction flow here.
+        # However, to avoid duplicate joins if multiple filters were to use it (none currently do in this block), we can just join.
+        query = query.outerjoin(VMManual)
+
+        query = query.filter(
+            db.or_(
+                # Method 1: Manual Override is True and Matches
+                db.and_(
+                    VMManual.override_os_family == True, 
+                    VMManual.manual_os_family.ilike(os_family)
+                ),
+                # Method 2: Manual Override is False/Null and Fact Matches
+                db.and_(
+                    db.or_(VMManual.override_os_family == None, VMManual.override_os_family == False),
+                    VMFact.os_family.ilike(os_family)
+                )
+            )
+        )
+    
+    # Tag filter
+    if tag:
+        query = query.join(VMTag).filter(VMTag.tag_value.ilike(tag))
+    
+    # Sorting
+    sort_by = request.args.get('sort_by', 'vm_name')
+    sort_order = request.args.get('order', 'asc')
+    
+    sort_column = VM.vm_name
+    query_joined = False
+    
+    if sort_by == 'vm_name':
+        sort_column = VM.vm_name
+    elif sort_by == 'platform':
+        sort_column = VM.platform
+    elif sort_by == 'power_state':
+        if not query_joined:
+            query = query.join(VMFact)
+            query_joined = True
+        sort_column = VMFact.power_state
+    elif sort_by == 'cluster_name':
+        if not query_joined:
+            query = query.join(VMFact)
+            query_joined = True
+        sort_column = VMFact.cluster_name
+    elif sort_by == 'memory_gb':
+        if not query_joined:
+            query = query.join(VMFact)
+            query_joined = True
+        sort_column = VMFact.memory_mb
+    elif sort_by == 'total_vcpus':
+        if not query_joined:
+            query = query.join(VMFact)
+            query_joined = True
+        sort_column = VMFact.total_vcpus
+    elif sort_by == 'environment':
+        query = query.join(VMManual)
+        sort_column = VMManual.environment
+    elif sort_by == 'total_disk_gb':
+        # Sorting by aggregated disk size is complex in ORM, skipping for now or defaults to name
+        # A proper implementation would require a subquery or aggregation
+        sort_column = VM.vm_name
+
+    if sort_order == 'desc':
+        query = query.order_by(sort_column.desc())
+    else:
+        query = query.order_by(sort_column.asc())
     
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
     
+    # Build host IP -> hostname mapping
+    hosts = Host.query.all()
+    host_map = {h.hypervisor_ip: h.hostname for h in hosts if h.hypervisor_ip}
+    
+    # Enrich VMs with host_hostname
+    vms_data = []
+    for vm in pagination.items:
+        vm_dict = vm.to_effective_dict()
+        host_ip = vm_dict.get('host_identifier')
+        vm_dict['host_hostname'] = host_map.get(host_ip) if host_ip else None
+        vms_data.append(vm_dict)
+    
     return jsonify({
-        'vms': [vm.to_effective_dict() for vm in pagination.items],
+        'vms': vms_data,
         'total': pagination.total,
         'page': page,
         'per_page': per_page,
@@ -136,14 +241,165 @@ def get_summary():
         db.func.count(VMManual.vm_id)
     ).join(VM).filter(VM.is_deleted == False).group_by(VMManual.environment).all()
     
+    # By OS Family (with manual override support)
+    effective_os_family = db.case(
+        (VMManual.override_os_family == True, VMManual.manual_os_family),
+        else_=VMFact.os_family
+    ).label('effective_os_family')
+    
+    by_os_family_query = db.session.query(
+        effective_os_family,
+        db.func.count(VM.id)
+    ).select_from(VM).outerjoin(VMManual).join(VMFact).filter(VM.is_deleted == False).group_by(effective_os_family).all()
+    
+    # Process OS Family data
+    os_family_stats = {}
+    for family, count in by_os_family_query:
+        if not family:
+            key = 'Unknown/Unspecified'
+        else:
+            key = family.title() # Normalize to Title Case (Linux, Windows)
+            
+        os_family_stats[key] = os_family_stats.get(key, 0) + count
+    
+    # Distinct tags
+    all_tags = db.session.query(
+        VMTag.tag_value
+    ).distinct().order_by(VMTag.tag_value).all()
+    tags_list = [t[0] for t in all_tags if t[0]]
+    
     return jsonify({
         'total_vms': total_vms,
         'deleted_vms': deleted_vms,
         'by_platform': {p[0]: p[1] for p in by_platform if p[0]},
         'by_power_state': {p[0]: p[1] for p in by_power_state if p[0]},
         'by_cluster': {c[0]: c[1] for c in by_cluster if c[0]},
-        'by_environment': {e[0]: e[1] for e in by_environment if e[0]}
+        'by_environment': {e[0]: e[1] for e in by_environment if e[0]},
+        'by_os_family': os_family_stats,
+        'tags': tags_list
     })
+
+
+@vms_bp.route('/export', methods=['GET'])
+@login_required
+@password_reset_not_required
+def export_vms():
+    """Export VM inventory as CSV"""
+    import csv
+    import io
+    from flask import make_response
+
+    platform = request.args.get('platform', '').strip()
+    power_state = request.args.get('power_state', '').strip()
+    os_family = request.args.get('os_family', '').strip()
+    
+    query = VM.query.filter(VM.is_deleted == False)
+    
+    if platform:
+        query = query.filter(VM.platform == platform)
+    
+    if power_state:
+        query = query.join(VMFact).filter(VMFact.power_state == power_state)
+    
+    if os_family:
+        query = query.join(VMFact).outerjoin(VMManual).filter(
+            db.or_(
+                db.and_(VMManual.override_os_family == True, VMManual.manual_os_family.ilike(os_family)),
+                db.and_(
+                    db.or_(VMManual.override_os_family == None, VMManual.override_os_family == False),
+                    VMFact.os_family.ilike(os_family)
+                )
+            )
+        )
+    
+    query = query.order_by(VM.vm_name)
+    vms = query.all()
+    
+    # Build lookups
+    hosts = Host.query.all()
+    host_map = {h.hypervisor_ip: h.hostname for h in hosts if h.hypervisor_ip}
+    
+    owners = Owner.query.all()
+    owner_map = {o.id: o.full_name for o in owners}
+    
+    # Build CSV
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    headers = [
+        'VM Name', 'Platform', 'UUID', 'Power State', 'OS Type', 'OS Family',
+        'Cluster', 'Host IP', 'Host Name', 'vCPUs', 'Memory (MB)',
+        'Total Disk (GB)', 'Total NICs', 'IP Addresses', 'Networks',
+        'Business Owner', 'Technical Owner', 'Environment', 'Tags',
+        'Created', 'Last Updated'
+    ]
+    writer.writerow(headers)
+    
+    for vm in vms:
+        vm_dict = vm.to_effective_dict()
+        
+        # Collect IPs
+        ips = []
+        for nic in vm.nics:
+            for ip in nic.ip_addresses:
+                if ip.ip_address:
+                    ips.append(ip.ip_address)
+        for ip in vm.manual_ips:
+            if ip.ip_address:
+                ips.append(ip.ip_address)
+        
+        # Collect networks
+        networks = set()
+        for nic in vm.nics:
+            if nic.network_name:
+                networks.add(nic.network_name)
+        
+        # Get owner names
+        business_owner = ''
+        technical_owner = ''
+        if vm.manual:
+            if vm.manual.business_owner_id:
+                business_owner = owner_map.get(vm.manual.business_owner_id, '')
+            if vm.manual.technical_owner_id:
+                technical_owner = owner_map.get(vm.manual.technical_owner_id, '')
+        
+        # Get tags
+        tags = ', '.join([t.tag_value for t in vm.tags])
+        
+        # Get environment
+        environment = vm.manual.environment if vm.manual else ''
+        
+        host_ip = vm_dict.get('host_identifier', '')
+        host_name = host_map.get(host_ip, '') if host_ip else ''
+        
+        writer.writerow([
+            vm.vm_name,
+            vm.platform,
+            vm.vm_uuid,
+            vm_dict.get('power_state', ''),
+            vm_dict.get('os_type', ''),
+            vm_dict.get('os_family', ''),
+            vm_dict.get('cluster_name', ''),
+            host_ip,
+            host_name,
+            vm_dict.get('total_vcpus', ''),
+            vm_dict.get('memory_mb', ''),
+            vm_dict.get('total_disk_gb', ''),
+            vm_dict.get('total_nics', ''),
+            '; '.join(ips),
+            '; '.join(networks),
+            business_owner,
+            technical_owner,
+            environment or '',
+            tags,
+            vm_dict.get('creation_date', ''),
+            vm_dict.get('last_update_date', '')
+        ])
+    
+    response = make_response(output.getvalue())
+    response.headers['Content-Type'] = 'text/csv'
+    response.headers['Content-Disposition'] = 'attachment; filename=vm_inventory_export.csv'
+    return response
 
 
 @vms_bp.route('/<int:vm_id>', methods=['GET'])
@@ -273,11 +529,22 @@ def update_manual(vm_id):
         manual.override_hostname = data['override_hostname']
     if 'manual_hostname' in data:
         manual.manual_hostname = data['manual_hostname']
+    if 'override_os_type' in data:
+        manual.override_os_type = data['override_os_type']
+    if 'manual_os_type' in data:
+        manual.manual_os_type = data['manual_os_type']
+    if 'override_os_family' in data:
+        manual.override_os_family = data['override_os_family']
+    if 'manual_os_family' in data:
+        manual.manual_os_family = data['manual_os_family']
     
     manual.updated_by = g.current_user.username
-    manual.updated_at = datetime.utcnow()
+    manual.updated_at = datetime.now(timezone.utc)
     
     db.session.commit()
+    
+    # Audit log
+    log_action('UPDATE', 'VM', str(vm_id), {'changes': list(data.keys()), 'manual': True})
     
     return jsonify({
         'manual': manual.to_dict(),

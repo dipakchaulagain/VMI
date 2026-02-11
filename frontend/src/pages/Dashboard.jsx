@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { vmsApi, syncApi, changesApi, networksApi } from '../services/api';
+import { vmsApi, syncApi, changesApi, networksApi, hostsApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import {
     Server,
@@ -14,7 +14,8 @@ import {
     ArrowRight,
     Cloud,
     AlertCircle,
-    Network
+    Network,
+    Monitor
 } from 'lucide-react';
 
 export default function Dashboard() {
@@ -22,6 +23,7 @@ export default function Dashboard() {
     const [recentChanges, setRecentChanges] = useState([]);
     const [syncStatus, setSyncStatus] = useState(null);
     const [networkStats, setNetworkStats] = useState(null);
+    const [hostStats, setHostStats] = useState(null);
     const [loading, setLoading] = useState(true);
     const { isAdmin } = useAuth();
 
@@ -31,17 +33,19 @@ export default function Dashboard() {
 
     const loadDashboard = async () => {
         try {
-            const [summaryRes, changesRes, syncRes, networksRes] = await Promise.all([
+            const [summaryRes, changesRes, syncRes, networksRes, hostsRes] = await Promise.all([
                 vmsApi.getSummary(),
                 changesApi.getSummary(),
                 isAdmin ? syncApi.getStatus() : Promise.resolve({ data: null }),
-                networksApi.getSummary()
+                networksApi.getSummary(),
+                hostsApi.getSummary()
             ]);
 
             setSummary(summaryRes.data);
             setRecentChanges(changesRes.data.recent_changes || []);
             setSyncStatus(syncRes.data);
             setNetworkStats(networksRes.data);
+            setHostStats(hostsRes.data);
         } catch (error) {
             console.error('Failed to load dashboard:', error);
         } finally {
@@ -64,6 +68,16 @@ export default function Dashboard() {
                     <div className="stat-content">
                         <h3>{summary?.total_vms || 0}</h3>
                         <p>Total VMs</p>
+                    </div>
+                </div>
+
+                <div className="stat-card">
+                    <div className="stat-icon info">
+                        <HardDrive size={24} />
+                    </div>
+                    <div className="stat-content">
+                        <h3>{hostStats?.total_hosts || 0} <span style={{ fontSize: '0.875rem', fontWeight: 400, color: 'var(--text-muted)' }}>({hostStats?.vmware?.count || 0} / {hostStats?.nutanix?.count || 0})</span></h3>
+                        <p>Total Hypervisors</p>
                     </div>
                 </div>
 
@@ -126,6 +140,38 @@ export default function Dashboard() {
                                 </div>
                             </div>
                         ))}
+                    </div>
+
+                    {/* OS Family Distribution */}
+                    <div className="card">
+                        <div className="card-header">
+                            <h3 className="card-title">OS Family Distribution</h3>
+                        </div>
+                        {loading ? (
+                            <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
+                                Loading...
+                            </div>
+                        ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                {(!summary?.by_os_family || Object.keys(summary.by_os_family).length === 0) ? (
+                                    <div style={{ textAlign: 'center', padding: '12px', color: 'var(--text-muted)' }}>
+                                        No Data
+                                    </div>
+                                ) : (
+                                    Object.entries(summary.by_os_family).map(([family, count]) => (
+                                        <div key={family} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                                <Monitor size={20} style={{ color: family.toLowerCase().includes('windows') ? '#0ea5e9' : (family.toLowerCase().includes('linux') ? '#f59e0b' : 'var(--text-muted)') }} />
+                                                <span style={{ textTransform: 'capitalize' }}>{family}</span>
+                                            </div>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                                <span className="badge badge-neutral">{count} VMs</span>
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        )}
                     </div>
                 </div>
 

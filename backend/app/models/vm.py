@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from app import db
 
 
@@ -17,8 +17,8 @@ class VM(db.Model):
     deleted_by = db.Column(db.Text)
     delete_reason = db.Column(db.Text)
     
-    first_seen_at = db.Column(db.DateTime(timezone=True), default=datetime.utcnow)
-    last_seen_at = db.Column(db.DateTime(timezone=True), default=datetime.utcnow)
+    first_seen_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    last_seen_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     last_sync_run_id = db.Column(db.BigInteger, db.ForeignKey('vm_sync_run.id'))
     
     __table_args__ = (db.UniqueConstraint('platform', 'vm_uuid'),)
@@ -80,6 +80,8 @@ class VM(db.Model):
             power_state = fact.power_state
             cluster_name = fact.cluster_name
             hostname = fact.hostname
+            os_type = fact.os_type
+            os_family = fact.os_family
             
             if manual:
                 if manual.override_power_state:
@@ -88,6 +90,10 @@ class VM(db.Model):
                     cluster_name = manual.manual_cluster_name
                 if manual.override_hostname:
                     hostname = manual.manual_hostname
+                if manual.override_os_type:
+                    os_type = manual.manual_os_type
+                if manual.override_os_family:
+                    os_family = manual.manual_os_family
             
             data.update({
                 'power_state': power_state,
@@ -95,8 +101,11 @@ class VM(db.Model):
                 'host_identifier': fact.host_identifier,
                 'hypervisor_type': fact.hypervisor_type,
                 'hostname': hostname,
-                'os_type': fact.os_type,
-                'os_family': fact.os_family,
+                'hostname': hostname,
+                'os_type': os_type,
+                'os_type': os_type,
+                'os_family': os_family,
+                'total_vcpus': fact.total_vcpus,
                 'total_vcpus': fact.total_vcpus,
                 'memory_gb': round(fact.memory_mb / 1024, 2) if fact.memory_mb else None,
                 'total_disks': fact.total_disks,
@@ -202,7 +211,7 @@ class VMFact(db.Model):
     last_update_date = db.Column(db.DateTime(timezone=True))
     
     raw = db.Column(db.JSON)
-    fact_updated_at = db.Column(db.DateTime(timezone=True), default=datetime.utcnow)
+    fact_updated_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     
     def to_dict(self):
         """Convert to dictionary"""
@@ -348,12 +357,16 @@ class VMManual(db.Model):
     override_power_state = db.Column(db.Boolean, default=False)
     override_cluster = db.Column(db.Boolean, default=False)
     override_hostname = db.Column(db.Boolean, default=False)
+    override_os_type = db.Column(db.Boolean, default=False)
+    override_os_family = db.Column(db.Boolean, default=False)
     
     manual_power_state = db.Column(db.String(20))
     manual_cluster_name = db.Column(db.String(255))
     manual_hostname = db.Column(db.String(255))
+    manual_os_type = db.Column(db.String(100))
+    manual_os_family = db.Column(db.String(50))
     
-    updated_at = db.Column(db.DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     updated_by = db.Column(db.Text)
     
     # Relationships
@@ -374,9 +387,13 @@ class VMManual(db.Model):
             'override_power_state': self.override_power_state,
             'override_cluster': self.override_cluster,
             'override_hostname': self.override_hostname,
+            'override_os_type': self.override_os_type,
+            'override_os_family': self.override_os_family,
             'manual_power_state': self.manual_power_state,
             'manual_cluster_name': self.manual_cluster_name,
             'manual_hostname': self.manual_hostname,
+            'manual_os_type': self.manual_os_type,
+            'manual_os_family': self.manual_os_family,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'updated_by': self.updated_by
         }
@@ -389,7 +406,7 @@ class VMTag(db.Model):
     id = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
     vm_id = db.Column(db.BigInteger, db.ForeignKey('vm.id', ondelete='CASCADE'), index=True)
     tag_value = db.Column(db.String(255), nullable=False)
-    created_at = db.Column(db.DateTime(timezone=True), default=datetime.utcnow)
+    created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     created_by = db.Column(db.Text)
     
     def to_dict(self):
@@ -413,7 +430,7 @@ class VMIpManual(db.Model):
     label = db.Column(db.String(255))
     is_primary = db.Column(db.Boolean, nullable=False, default=False)
     notes = db.Column(db.Text)
-    created_at = db.Column(db.DateTime(timezone=True), default=datetime.utcnow)
+    created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     created_by = db.Column(db.Text)
     
     __table_args__ = (db.UniqueConstraint('vm_id', 'ip_address'),)
@@ -439,7 +456,7 @@ class VMCustomField(db.Model):
     vm_id = db.Column(db.BigInteger, db.ForeignKey('vm.id', ondelete='CASCADE'), primary_key=True)
     field_key = db.Column(db.String(100), primary_key=True)
     field_value = db.Column(db.Text, nullable=False)
-    updated_at = db.Column(db.DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     updated_by = db.Column(db.Text)
     
     def to_dict(self):

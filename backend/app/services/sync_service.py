@@ -4,7 +4,7 @@ VM Sync Service
 Handles syncing VM data from Nutanix and VMware platforms.
 """
 import requests
-from datetime import datetime
+from datetime import datetime, timezone
 from flask import current_app
 from app import db
 from app.models.vm import VM, VMFact, VMNicFact, VMNicIpFact, VMDiskFact
@@ -19,7 +19,7 @@ class SyncService:
     PLATFORM_VMWARE = 'vmware'
     
     def __init__(self):
-        self.api_url = current_app.config['SYNC_API_URL']
+        pass
     
     def sync_platform(self, platform):
         """
@@ -40,45 +40,79 @@ class SyncService:
         db.session.commit()
         
         try:
-            # Fetch data from API
-            response = requests.post(
-                self.api_url,
-                json={'infra': platform},
-                timeout=120
-            )
-            response.raise_for_status()
-            data = response.json()
+            from app.models.system_api import SystemApi
             
-            # Parse response based on platform
-            if platform == self.PLATFORM_NUTANIX:
-                vms_data = self._parse_nutanix_response(data)
-            else:
-                vms_data = self._parse_vmware_response(data)
+            # Map platform to resource type
+            resource_type = f"{platform}_vm"
             
-            # Initialize change tracker
-            change_tracker = ChangeTracker(sync_run_id=sync_run.id)
+            # Get configured APIs
+            apis = SystemApi.query.filter_by(resource_type=resource_type, is_active=True).all()
             
-            # Process VMs
+            if not apis:
+                # Fallback for backward compatibility if "default" APIs haven't been seeded yet
+                # but better to rely on seeding.
+                pass
+            
+            processed_count = 0
+            changes_total = 0
             seen_vm_ids = []
-            for vm_data in vms_data:
-                vm_id = self._process_vm(platform, vm_data, sync_run.id, change_tracker)
-                if vm_id:
-                    seen_vm_ids.append(vm_id)
             
-            # Save change history
-            changes_count = change_tracker.save_changes()
+            for api in apis:
+                try:
+                    # Merge headers if needed
+                    headers = api.headers or {}
+                    
+                    # Fetch data from API
+                    response = requests.request(
+                        method=api.method,
+                        url=api.url,
+                        headers=headers,
+                        json=api.payload,
+                        timeout=120
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    
+                    # Parse response based on platform
+                    if platform == self.PLATFORM_NUTANIX:
+                        vms_data = self._parse_nutanix_response(data)
+                    else:
+                        vms_data = self._parse_vmware_response(data)
+                    
+                    # Initialize change tracker
+                    change_tracker = ChangeTracker(sync_run_id=sync_run.id)
+                    
+                    # Process VMs
+                    for vm_data in vms_data:
+                        vm_id = self._process_vm(platform, vm_data, sync_run.id, change_tracker)
+                        if vm_id:
+                            seen_vm_ids.append(vm_id)
+                    
+                    # Save change history for this batch
+                    changes_total += change_tracker.save_changes()
+                    
+                except Exception as e:
+                    print(f"Error syncing from API {api.name}: {e}")
+                    # Continue to next API if one fails?
+                    # For now, let's log and continue, but we track errors
             
-            # Soft delete VMs not seen in this sync
+            # If no APIs were run or all failed, we might have issues. 
+            # But let's assume at least one worked if we have seen_vm_ids.
+            
+            if not seen_vm_ids and not apis:
+                 raise Exception(f"No active APIs found for {resource_type}")
+
+            # Soft delete VMs not seen in ANY of the API calls (combined list)
             deleted_count = self._soft_delete_missing(platform, sync_run.id, seen_vm_ids)
             
             # Update sync run
-            sync_run.finished_at = datetime.utcnow()
+            sync_run.finished_at = datetime.now(timezone.utc)
             sync_run.status = 'SUCCESS'
             sync_run.vm_count_seen = len(seen_vm_ids)
             sync_run.details = {
                 'vms_processed': len(seen_vm_ids),
                 'vms_deleted': deleted_count,
-                'changes_detected': changes_count
+                'changes_detected': changes_total
             }
             db.session.commit()
             
@@ -87,11 +121,11 @@ class SyncService:
                 'sync_run_id': sync_run.id,
                 'vms_processed': len(seen_vm_ids),
                 'vms_deleted': deleted_count,
-                'changes_detected': changes_count
+                'changes_detected': changes_total
             }
             
         except Exception as e:
-            sync_run.finished_at = datetime.utcnow()
+            sync_run.finished_at = datetime.now(timezone.utc)
             sync_run.status = 'FAILED'
             sync_run.details = {'error': str(e)}
             db.session.commit()
@@ -157,7 +191,7 @@ class SyncService:
             vm.deleted_by = None
             vm.delete_reason = None
         
-        vm.last_seen_at = datetime.utcnow()
+        vm.last_seen_at = datetime.now(timezone.utc)
         vm.last_sync_run_id = sync_run_id
         
         # Prepare fact data
@@ -258,7 +292,7 @@ class SyncService:
             'power_state': vm_data.get('status'),
             'hypervisor_type': 'ESXi',
             'cluster_name': vm_data.get('cluster'),
-            'host_identifier': vm_data.get('host'),
+            'host_identifier': vm_data.get('host_ip') or vm_data.get('host'),
             'os_type': vm_data.get('os_type'),
             'os_family': vm_data.get('os_family'),
             'hostname': vm_data.get('host_name'),
@@ -383,7 +417,7 @@ class SyncService:
             setattr(fact, key, value)
         
         fact.raw = raw_data
-        fact.fact_updated_at = datetime.utcnow()
+        fact.fact_updated_at = datetime.now(timezone.utc)
     
     def _update_nics(self, vm_id, nics_data):
         """Update NIC records for a VM"""
@@ -499,10 +533,295 @@ class SyncService:
             ~VM.id.in_(seen_vm_ids) if seen_vm_ids else True
         ).update({
             'is_deleted': True,
-            'deleted_at': datetime.utcnow(),
+            'deleted_at': datetime.now(timezone.utc),
             'deleted_by': 'sync-job',
             'delete_reason': 'Not present in latest sync',
             'last_sync_run_id': sync_run_id
         }, synchronize_session=False)
         
         return deleted_count
+
+    def sync_hosts(self, platform=None):
+        """Sync hosts for all platforms or specific one"""
+        from app.models.host import Host
+        from app.models.system_api import SystemApi
+        from app.models.sync import VMSyncRun
+        
+        # Create sync run record
+        sync_run = VMSyncRun(
+            platform=f"hosts_{platform}" if platform else 'hosts',
+            status='RUNNING',
+            started_at=datetime.now(timezone.utc)
+        )
+        db.session.add(sync_run)
+        db.session.commit()
+        
+        results = {
+            'vmware': {'synced': 0, 'errors': []},
+            'nutanix': {'synced': 0, 'errors': []}
+        }
+        
+        total_synced = 0
+        error_details = []
+        
+        # Sync VMware hosts
+        if not platform or platform == 'vmware':
+            try:
+                apis = SystemApi.query.filter_by(resource_type='vmware_host', is_active=True).all()
+                if not apis:
+                    results['vmware']['errors'].append("No active API configuration found for 'vmware_host'")
+                    
+                for api in apis:
+                    try:
+                        headers = api.headers or {}
+                        response = requests.request(
+                            method=api.method,
+                            url=api.url,
+                            headers=headers,
+                            json=api.payload,
+                            timeout=60
+                        )
+                        
+                        if response.status_code == 200:
+                            hosts_data = response.json()
+                            for host_data in hosts_data:
+                                self._upsert_host('vmware', host_data)
+                            results['vmware']['synced'] += len(hosts_data)
+                            total_synced += len(hosts_data)
+                        else:
+                            msg = f"API {api.name} returned {response.status_code}"
+                            results['vmware']['errors'].append(msg)
+                            error_details.append(msg)
+                    except Exception as e:
+                        msg = f"API {api.name} error: {str(e)}"
+                        results['vmware']['errors'].append(msg)
+                        error_details.append(msg)
+                        
+            except Exception as e:
+                results['vmware']['errors'].append(str(e))
+                error_details.append(str(e))
+        
+        # Sync Nutanix hosts
+        if not platform or platform == 'nutanix':
+            try:
+                apis = SystemApi.query.filter_by(resource_type='nutanix_host', is_active=True).all()
+                if not apis:
+                    results['nutanix']['errors'].append("No active API configuration found for 'nutanix_host'")
+                    
+                for api in apis:
+                    try:
+                        headers = api.headers or {}
+                        response = requests.request(
+                            method=api.method,
+                            url=api.url,
+                            headers=headers,
+                            json=api.payload,
+                            timeout=60
+                        )
+                        
+                        if response.status_code == 200:
+                            hosts_data = response.json()
+                            for host_data in hosts_data:
+                                self._upsert_host('nutanix', host_data)
+                            results['nutanix']['synced'] += len(hosts_data)
+                            total_synced += len(hosts_data)
+                        else:
+                            msg = f"API {api.name} returned {response.status_code}"
+                            results['nutanix']['errors'].append(msg)
+                            error_details.append(msg)
+                    except Exception as e:
+                        msg = f"API {api.name} error: {str(e)}"
+                        results['nutanix']['errors'].append(msg)
+                        error_details.append(msg)
+                        
+            except Exception as e:
+                results['nutanix']['errors'].append(str(e))
+                error_details.append(str(e))
+        
+        # Update sync run status
+        sync_run.finished_at = datetime.now(timezone.utc)
+        sync_run.vm_count_seen = total_synced  # Reusing this field for host count
+        
+        if error_details:
+             sync_run.status = 'FAILED' if total_synced == 0 else 'WARNING'
+             sync_run.details = {'errors': error_details, 'results': results}
+        else:
+             sync_run.status = 'SUCCESS'
+             sync_run.details = {'results': results}
+             
+        db.session.commit()
+        return results
+
+    def _upsert_host(self, platform, data):
+        """Insert or update a host record"""
+        from app.models.host import Host
+        
+        host_id = data.get('host_id')
+        if not host_id:
+            return
+        
+        # Get hostname - VMware uses 'hostname', Nutanix uses 'name'
+        hostname = data.get('hostname') or data.get('name') or 'Unknown'
+        
+        # Skip invalid entries (like N/A from Nutanix)
+        if hostname == 'N/A' or data.get('hypervisor_ip') == 'N/A':
+            return
+        
+        host = Host.query.filter_by(platform=platform, host_id=host_id).first()
+        
+        if host:
+            # Update existing
+            host.hostname = hostname
+            host.hypervisor_ip = data.get('hypervisor_ip')
+            host.hypervisor_name = data.get('hypervisor_name')
+            host.cpu_model = data.get('cpu_model')
+            host.cpu_cores_physical = data.get('cpu_cores_physical', 0)
+            host.ram_gb = data.get('ram_gb', 0)
+            host.last_sync_at = datetime.now(timezone.utc)
+        else:
+            # Create new
+            host = Host(
+                platform=platform,
+                host_id=host_id,
+                hostname=hostname,
+                hypervisor_ip=data.get('hypervisor_ip'),
+                hypervisor_name=data.get('hypervisor_name'),
+                cpu_model=data.get('cpu_model'),
+                cpu_cores_physical=data.get('cpu_cores_physical', 0),
+                ram_gb=data.get('ram_gb', 0)
+            )
+            db.session.add(host)
+
+    def sync_networks(self, platform):
+        """Sync networks for a platform"""
+        from app.models.network import Network, VMwareNetwork
+        from app.models.system_api import SystemApi
+        from app.models.sync import VMSyncRun
+        
+        # Create sync run record
+        sync_run = VMSyncRun(
+            platform=f"{platform}_networks",
+            status='RUNNING',
+            started_at=datetime.now(timezone.utc)
+        )
+        db.session.add(sync_run)
+        db.session.commit()
+        
+        count = 0
+        errors = []
+        
+        resource_type = f"{platform}_network"
+        
+        try:
+            apis = SystemApi.query.filter_by(resource_type=resource_type, is_active=True).all()
+            if not apis:
+                errors.append(f"No active API configuration found for {resource_type}")
+
+            for api in apis:
+                try:
+                    headers = api.headers or {}
+                    response = requests.request(
+                        method=api.method,
+                        url=api.url,
+                        headers=headers,
+                        json=api.payload,
+                        timeout=60
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    
+                    if platform == 'vmware':
+                        # Parse VMware response
+                        networks = []
+                        if isinstance(data, list):
+                            for item in data:
+                                if 'vm-network' in item:
+                                    networks = item['vm-network']
+                                    break
+                                    
+                        for net in networks:
+                            network_id = net.get('network')
+                            name = net.get('name')
+                            
+                            if not network_id or not name:
+                                continue
+                            
+                            existing = Network.query.filter_by(platform='vmware', network_id=network_id).first()
+                            if existing:
+                                existing.name = name
+                                existing.last_sync_at = datetime.now(timezone.utc)
+                            else:
+                                new_net = Network(
+                                    platform='vmware',
+                                    network_id=network_id,
+                                    name=name
+                                )
+                                db.session.add(new_net)
+                            
+                            # Also update legacy VMwareNetwork table
+                            legacy = VMwareNetwork.query.filter_by(network_id=network_id).first()
+                            if legacy:
+                                legacy.name = name
+                                legacy.last_sync_at = datetime.now(timezone.utc)
+                            else:
+                                legacy = VMwareNetwork(network_id=network_id, name=name)
+                                db.session.add(legacy)
+                            
+                            count += 1
+                            
+                    elif platform == 'nutanix':
+                        # Parse Nutanix response
+                        networks = data if isinstance(data, list) else []
+                        
+                        for net in networks:
+                            name = net.get('name')
+                            vlan_id = net.get('vlan_id')
+                            
+                            if not name:
+                                continue
+                            
+                            # Use name as network_id for Nutanix since we don't have UUID
+                            network_id = name
+                            
+                            existing = Network.query.filter_by(platform='nutanix', network_id=network_id).first()
+                            if existing:
+                                existing.name = name
+                                if vlan_id is not None:
+                                    existing.vlan_id = vlan_id
+                                existing.last_sync_at = datetime.now(timezone.utc)
+                            else:
+                                new_net = Network(
+                                    platform='nutanix',
+                                    network_id=network_id,
+                                    name=name,
+                                    vlan_id=vlan_id
+                                )
+                                db.session.add(new_net)
+                            count += 1
+                            
+                except Exception as e:
+                    errors.append(f"API {api.name} failed: {str(e)}")
+            
+            # Update sync run status
+            sync_run.finished_at = datetime.now(timezone.utc)
+            sync_run.vm_count_seen = count  # Reusing this field for network count
+            
+            if errors:
+                 sync_run.status = 'FAILED' if count == 0 else 'WARNING'
+                 sync_run.details = {'errors': errors}
+            else:
+                 sync_run.status = 'SUCCESS'
+            
+            db.session.commit()
+            return {'synced': count, 'errors': errors}
+            
+        except Exception as e:
+            db.session.rollback()
+            # Update sync run status on crash
+            sync_run.finished_at = datetime.now(timezone.utc)
+            sync_run.status = 'FAILED'
+            sync_run.details = {'error': str(e)}
+            db.session.commit()
+            return {'synced': count, 'errors': [str(e)]}
+
+

@@ -7,6 +7,7 @@ from app.services.sync_service import SyncService
 from app.utils.decorators import login_required, admin_required, password_reset_not_required
 import requests
 from flask import current_app
+from app.utils.audit import log_action
 
 sync_bp = Blueprint('sync', __name__)
 
@@ -20,8 +21,10 @@ def sync_nutanix():
     result = service.sync_platform('nutanix')
     
     if result['status'] == 'error':
+        log_action('SYNC_ERROR', 'PLATFORM', 'nutanix', {'error': result.get('error')})
         return jsonify(result), 500
     
+    log_action('SYNC_TRIGGER', 'PLATFORM', 'nutanix', {'status': 'success'})
     return jsonify(result)
 
 
@@ -34,8 +37,10 @@ def sync_vmware():
     result = service.sync_platform('vmware')
     
     if result['status'] == 'error':
+        log_action('SYNC_ERROR', 'PLATFORM', 'vmware', {'error': result.get('error')})
         return jsonify(result), 500
     
+    log_action('SYNC_TRIGGER', 'PLATFORM', 'vmware', {'status': 'success'})
     return jsonify(result)
 
 
@@ -48,20 +53,46 @@ def sync_all():
     
     results = {
         'nutanix': service.sync_platform('nutanix'),
-        'vmware': service.sync_platform('vmware')
+        'vmware': service.sync_platform('vmware'),
+        'hosts': service.sync_hosts(),
+
+        'networks': {
+            'vmware': service.sync_networks('vmware'),
+            'nutanix': service.sync_networks('nutanix')
+        }
     }
     
     # Check if any failed
-    if any(r['status'] == 'error' for r in results.values()):
+    has_error = False
+    
+    # Check VM syncs
+    if results['nutanix']['status'] == 'error' or results['vmware']['status'] == 'error':
+        has_error = True
+        
+    # Check host errors
+    if results['hosts']['vmware']['errors'] or results['hosts']['nutanix']['errors']:
+        # This is a soft error (partial success maybe), but let's flag it
+        has_error = True
+        
+    # Check network errors
+    if results['networks']['vmware']['errors'] or results['networks']['nutanix']['errors']:
+        has_error = True
+
+    if has_error:
+        log_action('SYNC_Trigger', 'ALL', 'all', {'status': 'partial', 'results': results})
         return jsonify({
             'status': 'partial',
             'results': results
         }), 207  # Multi-Status
     
+    log_action('SYNC_TRIGGER', 'ALL', 'all', {'status': 'success'})
     return jsonify({
         'status': 'success',
         'results': results
     })
+
+
+
 
 
 @sync_bp.route('/networks', methods=['POST'])
@@ -117,6 +148,7 @@ def sync_networks():
         
     except Exception as e:
         db.session.rollback()
+        log_action('SYNC_ERROR', 'NETWORK', 'vmware', {'error': str(e)})
         return jsonify({
             'status': 'error',
             'error': str(e)

@@ -12,6 +12,9 @@ import OwnerManagement from './pages/OwnerManagement';
 import ChangeHistory from './pages/ChangeHistory';
 import SyncManagement from './pages/SyncManagement';
 import NetworkManagement from './pages/NetworkManagement';
+import Settings from './pages/Settings';
+import Hypervisors from './pages/Hypervisors';
+import ActivityLog from './pages/ActivityLog';
 
 function PrivateRoute({ children, adminOnly = false }) {
     const { user, loading, mustResetPassword, isAdmin } = useAuth();
@@ -69,6 +72,13 @@ function AppRoutes() {
                         <SyncManagement />
                     </PrivateRoute>
                 } />
+                <Route path="activity" element={
+                    <PrivateRoute adminOnly>
+                        <ActivityLog />
+                    </PrivateRoute>
+                } />
+                <Route path="settings" element={<Settings />} />
+                <Route path="hypervisors" element={<Hypervisors />} />
             </Route>
         </Routes>
     );

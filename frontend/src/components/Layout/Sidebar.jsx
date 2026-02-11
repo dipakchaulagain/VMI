@@ -9,7 +9,9 @@ import {
     RefreshCw,
     LogOut,
     Settings,
-    Network
+    Network,
+    HardDrive,
+    Activity
 } from 'lucide-react';
 import './Sidebar.css';
 
@@ -20,6 +22,7 @@ export default function Sidebar() {
     const navItems = [
         { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
         { path: '/vms', icon: Server, label: 'VM Inventory' },
+        { path: '/hypervisors', icon: HardDrive, label: 'Hypervisors' },
         { path: '/networks', icon: Network, label: 'Networks' },
         { path: '/changes', icon: History, label: 'Change History' },
         { path: '/owners', icon: UserCircle, label: 'Owners' },
@@ -28,6 +31,8 @@ export default function Sidebar() {
     const adminItems = [
         { path: '/users', icon: Users, label: 'User Management' },
         { path: '/sync', icon: RefreshCw, label: 'Sync Management' },
+        { path: '/activity', icon: Activity, label: 'Web Activity' },
+        { path: '/settings', icon: Settings, label: 'Settings' },
     ];
 
     return (

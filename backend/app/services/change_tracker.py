@@ -3,7 +3,7 @@ Change Tracker Service
 
 Detects changes between old and new VM data during sync operations.
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from app import db
 from app.models.sync import VMChangeHistory
 
@@ -55,7 +55,7 @@ class ChangeTracker:
                         'field_name': field,
                         'old_value': old_str,
                         'new_value': new_str,
-                        'changed_at': datetime.utcnow()
+                        'changed_at': datetime.now(timezone.utc)
                     })
         
         self.changes.extend(changes)
@@ -93,7 +93,7 @@ class ChangeTracker:
                     'field_name': 'disk_added',
                     'old_value': None,
                     'new_value': f"{disk.get('disk_label', 'Unknown')} ({disk.get('size_gb', 0)} GB)",
-                    'changed_at': datetime.utcnow()
+                    'changed_at': datetime.now(timezone.utc)
                 })
         
         # Check for removed disks
@@ -106,7 +106,7 @@ class ChangeTracker:
                     'field_name': 'disk_removed',
                     'old_value': f"{disk.disk_label or 'Unknown'} ({disk.size_gb or 0} GB)",
                     'new_value': None,
-                    'changed_at': datetime.utcnow()
+                    'changed_at': datetime.now(timezone.utc)
                 })
         
         # Check for size changes
@@ -125,7 +125,7 @@ class ChangeTracker:
                     'field_name': 'disk_size_changed',
                     'old_value': f"{old_disk.disk_label or 'Unknown'}: {old_size} GB",
                     'new_value': f"{new_disk.get('disk_label', 'Unknown')}: {new_size} GB",
-                    'changed_at': datetime.utcnow()
+                    'changed_at': datetime.now(timezone.utc)
                 })
         
         self.changes.extend(changes)
@@ -156,7 +156,7 @@ class ChangeTracker:
                     'field_name': 'nic_added',
                     'old_value': None,
                     'new_value': f"{nic.get('network_name', 'Unknown')} ({mac})",
-                    'changed_at': datetime.utcnow()
+                    'changed_at': datetime.now(timezone.utc)
                 })
         
         # Check for removed NICs
@@ -169,7 +169,7 @@ class ChangeTracker:
                     'field_name': 'nic_removed',
                     'old_value': f"{nic.network_name or 'Unknown'} ({mac})",
                     'new_value': None,
-                    'changed_at': datetime.utcnow()
+                    'changed_at': datetime.now(timezone.utc)
                 })
         
         self.changes.extend(changes)
@@ -208,7 +208,7 @@ class ChangeTracker:
                     'field_name': 'ip_added',
                     'old_value': None,
                     'new_value': ip,
-                    'changed_at': datetime.utcnow()
+                    'changed_at': datetime.now(timezone.utc)
                 })
         
         # Check for removed IPs
@@ -221,7 +221,7 @@ class ChangeTracker:
                     'field_name': 'ip_removed',
                     'old_value': ip,
                     'new_value': None,
-                    'changed_at': datetime.utcnow()
+                    'changed_at': datetime.now(timezone.utc)
                 })
         
         self.changes.extend(changes)

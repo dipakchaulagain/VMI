@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify, g
-from datetime import datetime
+from datetime import datetime, timezone
 from app import db
 from app.models.vm import VM
 from app.models.sync import VMChangeHistory
@@ -50,7 +50,7 @@ def get_changes_summary():
     """Get summary of recent changes"""
     # Last 24 hours
     from datetime import timedelta
-    since = datetime.utcnow() - timedelta(hours=24)
+    since = datetime.now(timezone.utc) - timedelta(hours=24)
     
     # Count by type
     by_type = db.session.query(

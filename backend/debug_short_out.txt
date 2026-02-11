@@ -1,0 +1,6 @@
+Starting script...
+Finding API...
+Calling API: https://n8n.dishhome.com.np/webhook/bd89be2a-7de0-4c1c-acd4-56f2b7077daf
+Payload: {'infra': 'vmware'}
+API request timed out after 5 seconds.
+Done.

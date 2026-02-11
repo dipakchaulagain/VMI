@@ -229,7 +229,7 @@ export default function NetworkManagement() {
                                     <td>
                                         {network.vm_count > 0 ? (
                                             <button
-                                                onClick={() => navigate(`/vms?network=${encodeURIComponent(network.name)}`)}
+                                                onClick={() => navigate(`/vms?network=${encodeURIComponent(network.platform === 'vmware' ? network.network_id : network.name)}`)}
                                                 style={{
                                                     display: 'inline-flex',
                                                     alignItems: 'center',

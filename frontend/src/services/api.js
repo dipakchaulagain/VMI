@@ -1,6 +1,17 @@
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || '/api';
+// Dynamically construct API URL using current hostname for LAN access
+const getApiUrl = () => {
+    // If explicitly set (for production/custom setups), use the env var
+    if (import.meta.env.VITE_API_URL) {
+        return import.meta.env.VITE_API_URL;
+    }
+    // Otherwise, use the current hostname with backend port
+    const hostname = window.location.hostname;
+    return `http://${hostname}:5000/api`;
+};
+
+const API_URL = getApiUrl();
 
 const api = axios.create({
     baseURL: API_URL,
@@ -75,6 +86,7 @@ export const vmsApi = {
     getManualIps: (id) => api.get(`/vms/${id}/manual-ips`),
     addManualIp: (id, data) => api.post(`/vms/${id}/manual-ips`, data),
     removeManualIp: (id, ipId) => api.delete(`/vms/${id}/manual-ips/${ipId}`),
+    exportVMs: (params) => api.get('/vms/export', { params, responseType: 'blob' }),
 };
 
 // Sync API
@@ -86,6 +98,7 @@ export const syncApi = {
     getRuns: (params) => api.get('/sync/runs', { params }),
     getRun: (id) => api.get(`/sync/runs/${id}`),
     getStatus: () => api.get('/sync/status'),
+
     getNetworks: () => api.get('/sync/networks'),
 };
 
@@ -105,4 +118,28 @@ export const networksApi = {
     syncVmware: () => api.post('/networks/sync/vmware'),
     syncNutanix: () => api.post('/networks/sync/nutanix'),
     getSummary: () => api.get('/networks/summary'),
+};
+
+// Settings API
+export const settingsApi = {
+    getSyncSettings: () => api.get('/settings/sync'),
+    updateSyncSettings: (data) => api.put('/settings/sync', data),
+    listApis: () => api.get('/settings/apis'),
+    createApi: (data) => api.post('/settings/apis', data),
+    updateApi: (id, data) => api.put(`/settings/apis/${id}`, data),
+    deleteApi: (id) => api.delete(`/settings/apis/${id}`),
+};
+
+// Hosts API
+export const hostsApi = {
+    list: (params) => api.get('/hosts', { params }),
+    getSummary: () => api.get('/hosts/summary'),
+    sync: (platform) => api.post('/hosts/sync', {}, { params: { platform } }),
+};
+
+
+// Audit API
+export const auditApi = {
+    list: (params) => api.get('/audit', { params }),
+    getTypes: () => api.get('/audit/types'),
 };

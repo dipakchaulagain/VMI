@@ -1,8 +1,9 @@
 from flask import Blueprint, request, jsonify, g
-from datetime import datetime
+from datetime import datetime, timezone
 from app import db
 from app.models.user import User
 from app.utils.decorators import login_required, admin_required, password_reset_not_required
+from app.utils.audit import log_action
 
 users_bp = Blueprint('users', __name__)
 
@@ -95,6 +96,8 @@ def create_user():
     db.session.add(user)
     db.session.commit()
     
+    log_action('CREATE', 'USER', str(user.id), {'username': user.username, 'role': user.role})
+    
     return jsonify({'user': user.to_dict(), 'message': 'User created successfully'}), 201
 
 
@@ -137,8 +140,10 @@ def update_user(user_id):
         user.set_password(data['password'])
         user.must_reset_password = data.get('must_reset_password', False)
     
-    user.updated_at = datetime.utcnow()
+    user.updated_at = datetime.now(timezone.utc)
     db.session.commit()
+    
+    log_action('UPDATE', 'USER', str(user.id), {'changes': list(data.keys())})
     
     return jsonify({'user': user.to_dict(), 'message': 'User updated successfully'})
 
@@ -156,5 +161,7 @@ def delete_user(user_id):
     
     db.session.delete(user)
     db.session.commit()
+    
+    log_action('DELETE', 'USER', str(user_id), {'username': user.username})
     
     return jsonify({'message': 'User deleted successfully'})

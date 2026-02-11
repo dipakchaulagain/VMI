@@ -182,131 +182,42 @@ def update_network(network_id):
 @admin_required
 @password_reset_not_required
 def sync_vmware_networks():
-    """Sync VMware networks from n8n"""
-    try:
-        api_url = current_app.config['SYNC_API_URL']
-        response = requests.post(
-            api_url,
-            json={'infra': 'vw-network'},
-            timeout=60
-        )
-        response.raise_for_status()
-        data = response.json()
-        
-        # Parse response
-        networks = []
-        if isinstance(data, list):
-            for item in data:
-                if 'vm-network' in item:
-                    networks = item['vm-network']
-                    break
-        
-        # Upsert networks
-        count = 0
-        for net in networks:
-            network_id = net.get('network')
-            name = net.get('name')
-            
-            if not network_id or not name:
-                continue
-            
-            existing = Network.query.filter_by(platform='vmware', network_id=network_id).first()
-            if existing:
-                existing.name = name
-                existing.last_sync_at = datetime.now(timezone.utc)
-            else:
-                new_net = Network(
-                    platform='vmware',
-                    network_id=network_id,
-                    name=name
-                )
-                db.session.add(new_net)
-            
-            # Also update legacy VMwareNetwork table
-            legacy = VMwareNetwork.query.filter_by(network_id=network_id).first()
-            if legacy:
-                legacy.name = name
-                legacy.last_sync_at = datetime.now(timezone.utc)
-            else:
-                legacy = VMwareNetwork(network_id=network_id, name=name)
-                db.session.add(legacy)
-            
-            count += 1
-        
-        db.session.commit()
-        
-        return jsonify({
-            'status': 'success',
-            'networks_synced': count
-        })
-        
-    except Exception as e:
-        db.session.rollback()
+    """Sync VMware networks from external APIs"""
+    from app.services.sync_service import SyncService
+    service = SyncService()
+    result = service.sync_networks('vmware')
+    
+    if result.get('errors'):
         return jsonify({
             'status': 'error',
-            'error': str(e)
+            'errors': result['errors']
         }), 500
+        
+    return jsonify({
+        'status': 'success',
+        'networks_synced': result['synced']
+    })
 
 
 @networks_bp.route('/sync/nutanix', methods=['POST'])
 @admin_required
 @password_reset_not_required
 def sync_nutanix_networks():
-    """Sync Nutanix subnets from n8n"""
-    try:
-        api_url = current_app.config['SYNC_API_URL']
-        response = requests.post(
-            api_url,
-            json={'infra': 'ntx-network'},
-            timeout=60
-        )
-        response.raise_for_status()
-        data = response.json()
-        
-        # Parse response - it's a simple array of {name, vlan_id}
-        networks = data if isinstance(data, list) else []
-        
-        # Upsert networks
-        count = 0
-        for net in networks:
-            name = net.get('name')
-            vlan_id = net.get('vlan_id')
-            
-            if not name:
-                continue
-            
-            # Use name as network_id for Nutanix since we don't have UUID
-            network_id = name
-            
-            existing = Network.query.filter_by(platform='nutanix', network_id=network_id).first()
-            if existing:
-                existing.name = name
-                if vlan_id is not None:
-                    existing.vlan_id = vlan_id
-                existing.last_sync_at = datetime.now(timezone.utc)
-            else:
-                new_net = Network(
-                    platform='nutanix',
-                    network_id=network_id,
-                    name=name,
-                    vlan_id=vlan_id
-                )
-                db.session.add(new_net)
-            count += 1
-        
-        db.session.commit()
-        
-        return jsonify({
-            'status': 'success',
-            'networks_synced': count
-        })
-        
-    except Exception as e:
-        db.session.rollback()
+    """Sync Nutanix subnets from external APIs"""
+    from app.services.sync_service import SyncService
+    service = SyncService()
+    result = service.sync_networks('nutanix')
+    
+    if result.get('errors'):
         return jsonify({
             'status': 'error',
-            'error': str(e)
+            'errors': result['errors']
         }), 500
+        
+    return jsonify({
+        'status': 'success',
+        'networks_synced': result['synced']
+    })
 
 
 @networks_bp.route('/summary', methods=['GET'])

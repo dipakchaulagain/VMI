@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { syncApi, networksApi } from '../services/api';
+import { createPortal } from 'react-dom';
+import { syncApi, networksApi, hostsApi } from '../services/api';
 import {
     RefreshCw,
     Cloud,
@@ -8,7 +9,8 @@ import {
     Clock,
     AlertCircle,
     Play,
-    Network
+    Network,
+    Server
 } from 'lucide-react';
 
 export default function SyncManagement() {
@@ -19,9 +21,16 @@ export default function SyncManagement() {
         nutanix: false,
         vmware: false,
         vmwareNetworks: false,
-        nutanixNetworks: false
+        nutanixNetworks: false,
+        hosts: false
     });
     const [networkSummary, setNetworkSummary] = useState({});
+    const [hostSummary, setHostSummary] = useState({});
+    const [headerActions, setHeaderActions] = useState(null);
+
+    useEffect(() => {
+        setHeaderActions(document.getElementById('header-actions'));
+    }, []);
 
     useEffect(() => {
         loadData();
@@ -29,14 +38,16 @@ export default function SyncManagement() {
 
     const loadData = async () => {
         try {
-            const [statusRes, runsRes, networkRes] = await Promise.all([
+            const [statusRes, runsRes, networkRes, hostRes] = await Promise.all([
                 syncApi.getStatus(),
                 syncApi.getRuns({ per_page: 20 }),
-                networksApi.getSummary()
+                networksApi.getSummary(),
+                hostsApi.getSummary()
             ]);
             setStatus(statusRes.data);
             setRuns(runsRes.data.runs);
             setNetworkSummary(networkRes.data);
+            setHostSummary(hostRes.data);
         } catch (error) {
             console.error('Failed to load sync data:', error);
         } finally {
@@ -56,6 +67,12 @@ export default function SyncManagement() {
                 await networksApi.syncVmware();
             } else if (platform === 'nutanixNetworks') {
                 await networksApi.syncNutanix();
+            } else if (platform === 'hosts') {
+                await hostsApi.sync();
+            } else if (platform === 'vmwareHosts') {
+                await hostsApi.sync('vmware');
+            } else if (platform === 'nutanixHosts') {
+                await hostsApi.sync('nutanix');
             }
             await loadData();
         } catch (error) {
@@ -87,158 +104,198 @@ export default function SyncManagement() {
         );
     }
 
+    const formatDate = (dateString) => {
+        if (!dateString) return '-';
+        return new Date(dateString).toLocaleString('en-US', {
+            timeZone: 'Asia/Kathmandu',
+            year: 'numeric',
+            month: 'numeric',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: 'numeric',
+            second: 'numeric',
+            hour12: true
+        });
+    };
+
     return (
         <div>
-            {/* Sync Controls */}
-            <div className="stats-grid" style={{ marginBottom: '32px' }}>
-                <div className="card">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <div className="stat-icon success">
-                                <Cloud size={24} />
-                            </div>
-                            <div>
-                                <h3 style={{ fontSize: '1.125rem' }}>Nutanix</h3>
-                                {status?.nutanix && (
-                                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                        Last sync: {new Date(status.nutanix.started_at).toLocaleString()}
-                                    </p>
-                                )}
-                            </div>
-                        </div>
-                        <button
-                            className="btn btn-primary"
-                            onClick={() => handleSync('nutanix')}
-                            disabled={syncing.nutanix}
-                        >
-                            {syncing.nutanix ? (
-                                <><span className="loading-spinner" /> Syncing...</>
-                            ) : (
-                                <><Play size={16} /> Sync Now</>
-                            )}
-                        </button>
-                    </div>
-                    {status?.nutanix && (
-                        <div style={{ display: 'flex', gap: '16px', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-                            <span>Status: <span className={`badge badge-${status.nutanix.status === 'SUCCESS' ? 'success' : status.nutanix.status === 'RUNNING' ? 'warning' : 'error'}`}>{status.nutanix.status}</span></span>
-                            <span>VMs: {status.nutanix.vm_count_seen}</span>
-                        </div>
-                    )}
-                </div>
-
-                <div className="card">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <div className="stat-icon primary">
-                                <Cloud size={24} />
-                            </div>
-                            <div>
-                                <h3 style={{ fontSize: '1.125rem' }}>VMware</h3>
-                                {status?.vmware && (
-                                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                        Last sync: {new Date(status.vmware.started_at).toLocaleString()}
-                                    </p>
-                                )}
-                            </div>
-                        </div>
-                        <button
-                            className="btn btn-primary"
-                            onClick={() => handleSync('vmware')}
-                            disabled={syncing.vmware}
-                        >
-                            {syncing.vmware ? (
-                                <><span className="loading-spinner" /> Syncing...</>
-                            ) : (
-                                <><Play size={16} /> Sync Now</>
-                            )}
-                        </button>
-                    </div>
-                    {status?.vmware && (
-                        <div style={{ display: 'flex', gap: '16px', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-                            <span>Status: <span className={`badge badge-${status.vmware.status === 'SUCCESS' ? 'success' : status.vmware.status === 'RUNNING' ? 'warning' : 'error'}`}>{status.vmware.status}</span></span>
-                            <span>VMs: {status.vmware.vm_count_seen}</span>
-                        </div>
-                    )}
-                </div>
-
-                {/* VMware Networks */}
-                <div className="card">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <div className="stat-icon info">
-                                <Network size={24} />
-                            </div>
-                            <div>
-                                <h3 style={{ fontSize: '1.125rem' }}>VMware Networks</h3>
-                                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                    Maps network IDs to friendly names
-                                </p>
-                            </div>
-                        </div>
-                        <button
-                            className="btn btn-primary"
-                            onClick={() => handleSync('vmwareNetworks')}
-                            disabled={syncing.vmwareNetworks}
-                        >
-                            {syncing.vmwareNetworks ? (
-                                <><span className="loading-spinner" /> Syncing...</>
-                            ) : (
-                                <><Play size={16} /> Sync Now</>
-                            )}
-                        </button>
-                    </div>
-                    <div style={{ display: 'flex', gap: '16px', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-                        <span>Networks: <span className="badge badge-info">{networkSummary?.vmware || 0}</span></span>
-                    </div>
-                </div>
-
-                {/* Nutanix Networks */}
-                <div className="card">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <div className="stat-icon success">
-                                <Network size={24} />
-                            </div>
-                            <div>
-                                <h3 style={{ fontSize: '1.125rem' }}>Nutanix Networks</h3>
-                                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                    Subnets with VLAN IDs
-                                </p>
-                            </div>
-                        </div>
-                        <button
-                            className="btn btn-success"
-                            onClick={() => handleSync('nutanixNetworks')}
-                            disabled={syncing.nutanixNetworks}
-                        >
-                            {syncing.nutanixNetworks ? (
-                                <><span className="loading-spinner" /> Syncing...</>
-                            ) : (
-                                <><Play size={16} /> Sync Now</>
-                            )}
-                        </button>
-                    </div>
-                    <div style={{ display: 'flex', gap: '16px', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-                        <span>Networks: <span className="badge badge-success">{networkSummary?.nutanix || 0}</span></span>
-                    </div>
-                </div>
-            </div>
-
-            {/* Sync All Button */}
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '32px' }}>
+            {headerActions && createPortal(
                 <button
                     className="btn btn-primary"
                     onClick={handleSyncAll}
                     disabled={syncing.nutanix || syncing.vmware}
-                    style={{ padding: '14px 32px', fontSize: '1rem' }}
                 >
                     {(syncing.nutanix || syncing.vmware) ? (
                         <><span className="loading-spinner" /> Syncing All...</>
                     ) : (
-                        <><RefreshCw size={18} /> Sync All Platforms</>
+                        <><RefreshCw size={18} /> Sync All</>
                     )}
-                </button>
+                </button>,
+                headerActions
+            )}
+
+            {/* Sync Controls */}
+            <div className="stats-grid" style={{ marginBottom: '32px' }}>
+                {/* Virtual Machines */}
+                <div className="card">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', minHeight: '48px' }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', flex: 1 }}>
+                            <div className="stat-icon primary" style={{ flexShrink: 0 }}>
+                                <Cloud size={24} />
+                            </div>
+                            <div>
+                                <h3 style={{ fontSize: '1.125rem', lineHeight: '1.3' }}>Virtual Machines</h3>
+                                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                    Sync VM inventory from hypervisors
+                                </p>
+                            </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', flexShrink: 0, alignSelf: 'center' }}>
+                            <button
+                                className="btn btn-primary btn-sm"
+                                onClick={() => handleSync('vmware')}
+                                disabled={syncing.vmware}
+                                title="Sync VMware VMs"
+                            >
+                                {syncing.vmware ? (
+                                    <><span className="loading-spinner" /> VMware</>
+                                ) : (
+                                    <><Play size={14} /> VMware</>
+                                )}
+                            </button>
+                            <button
+                                className="btn btn-success btn-sm"
+                                onClick={() => handleSync('nutanix')}
+                                disabled={syncing.nutanix}
+                                title="Sync Nutanix VMs"
+                            >
+                                {syncing.nutanix ? (
+                                    <><span className="loading-spinner" /> Nutanix</>
+                                ) : (
+                                    <><Play size={14} /> Nutanix</>
+                                )}
+                            </button>
+
+                        </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '24px', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                            <span>VMware:</span>
+                            {status?.vmware && (
+                                <>
+                                    <span>{status.vmware.vm_count_seen} VMs</span>
+                                </>
+                            )}
+                        </div>
+                        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                            <span>Nutanix:</span>
+                            {status?.nutanix && (
+                                <>
+                                    <span>{status.nutanix.vm_count_seen} VMs</span>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Networks */}
+                <div className="card">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', minHeight: '48px' }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', flex: 1 }}>
+                            <div className="stat-icon info" style={{ flexShrink: 0 }}>
+                                <Network size={24} />
+                            </div>
+                            <div>
+                                <h3 style={{ fontSize: '1.125rem', lineHeight: '1.3' }}>Networks</h3>
+                                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                    Hypervisor network mappings
+                                </p>
+                            </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', flexShrink: 0, alignSelf: 'center' }}>
+                            <button
+                                className="btn btn-primary btn-sm"
+                                onClick={() => handleSync('vmwareNetworks')}
+                                disabled={syncing.vmwareNetworks}
+                                title="Sync VMware Networks"
+                            >
+                                {syncing.vmwareNetworks ? (
+                                    <><span className="loading-spinner" /> VMware</>
+                                ) : (
+                                    <><Play size={14} /> VMware</>
+                                )}
+                            </button>
+                            <button
+                                className="btn btn-success btn-sm"
+                                onClick={() => handleSync('nutanixNetworks')}
+                                disabled={syncing.nutanixNetworks}
+                                title="Sync Nutanix Networks"
+                            >
+                                {syncing.nutanixNetworks ? (
+                                    <><span className="loading-spinner" /> Nutanix</>
+                                ) : (
+                                    <><Play size={14} /> Nutanix</>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '16px', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                        <span>VMware: <span className="badge badge-info">{networkSummary?.vmware || 0}</span></span>
+                        <span>Nutanix: <span className="badge badge-success">{networkSummary?.nutanix || 0}</span></span>
+                    </div>
+                </div>
+
+                {/* Hosts (Hypervisors) */}
+                <div className="card">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', minHeight: '48px' }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', flex: 1 }}>
+                            <div className="stat-icon warning" style={{ flexShrink: 0 }}>
+                                <Server size={24} />
+                            </div>
+                            <div>
+                                <h3 style={{ fontSize: '1.125rem', lineHeight: '1.3' }}>Hypervisors</h3>
+                                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                    ESXi and Nutanix hosts
+                                </p>
+                            </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', flexShrink: 0, alignSelf: 'center' }}>
+                            <button
+                                className="btn btn-primary btn-sm"
+                                onClick={() => handleSync('vmwareHosts')}
+                                disabled={syncing.vmwareHosts}
+                                title="Sync VMware Hosts"
+                            >
+                                {syncing.vmwareHosts ? (
+                                    <><span className="loading-spinner" /> VMware</>
+                                ) : (
+                                    <><Play size={14} /> VMware</>
+                                )}
+                            </button>
+                            <button
+                                className="btn btn-success btn-sm"
+                                onClick={() => handleSync('nutanixHosts')}
+                                disabled={syncing.nutanixHosts}
+                                title="Sync Nutanix Hosts"
+                            >
+                                {syncing.nutanixHosts ? (
+                                    <><span className="loading-spinner" /> Nutanix</>
+                                ) : (
+                                    <><Play size={14} /> Nutanix</>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '16px', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                        <span>VMware: <span className="badge badge-info">{hostSummary?.vmware?.count || 0}</span></span>
+                        <span>Nutanix: <span className="badge badge-success">{hostSummary?.nutanix?.count || 0}</span></span>
+                    </div>
+                </div>
             </div>
+
+
+
 
             {/* Sync History */}
             <div className="card">
@@ -288,21 +345,41 @@ export default function SyncManagement() {
                                         </td>
                                         <td>{run.vm_count_seen || 0}</td>
                                         <td style={{ color: 'var(--text-muted)' }}>
-                                            {new Date(run.started_at).toLocaleString()}
+                                            {formatDate(run.started_at)}
                                         </td>
                                         <td style={{ color: 'var(--text-muted)' }}>
-                                            {run.finished_at ? new Date(run.finished_at).toLocaleString() : '-'}
+                                            {formatDate(run.finished_at)}
                                         </td>
                                         <td>
                                             {run.details?.changes_detected !== undefined && (
-                                                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                                                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                                                     {run.details.changes_detected} changes
-                                                </span>
+                                                </div>
+                                            )}
+                                            {run.details?.updated !== undefined && (
+                                                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                                                    {run.details.updated} updated
+                                                </div>
+                                            )}
+                                            {run.details?.mappings_received !== undefined && (
+                                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }} title={`VMs matched: ${run.details.vm_matched}, Hosts matched: ${run.details.host_matched}`}>
+                                                    {run.details.mappings_received} rx, {run.details.vm_matched}/{run.details.host_matched} match
+                                                </div>
+                                            )}
+                                            {run.details?.first_mapping_keys && (
+                                                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }} title={`Keys: ${run.details.first_mapping_keys.join(', ')}`}>
+                                                    Keys: {run.details.first_mapping_keys.join(', ').substring(0, 20)}...
+                                                </div>
                                             )}
                                             {run.details?.error && (
-                                                <span style={{ fontSize: '0.75rem', color: 'var(--error)' }} title={run.details.error}>
+                                                <div style={{ fontSize: '0.75rem', color: 'var(--error)' }} title={run.details.error}>
                                                     Error
-                                                </span>
+                                                </div>
+                                            )}
+                                            {run.details?.errors && run.details.errors.length > 0 && (
+                                                <div style={{ fontSize: '0.75rem', color: 'var(--error)' }} title={run.details.errors.join('\n')}>
+                                                    {run.details.errors.length} Errors
+                                                </div>
                                             )}
                                         </td>
                                     </tr>
@@ -312,6 +389,6 @@ export default function SyncManagement() {
                     </div>
                 )}
             </div>
-        </div>
+        </div >
     );
 }

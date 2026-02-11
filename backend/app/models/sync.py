@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from app import db
 
 
@@ -8,7 +8,7 @@ class VMSyncRun(db.Model):
     
     id = db.Column(db.BigInteger, primary_key=True)
     platform = db.Column(db.String(20), nullable=False)
-    started_at = db.Column(db.DateTime(timezone=True), default=datetime.utcnow)
+    started_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     finished_at = db.Column(db.DateTime(timezone=True))
     status = db.Column(db.String(20), nullable=False, default='RUNNING')
     vm_count_seen = db.Column(db.Integer, default=0)
@@ -38,7 +38,7 @@ class VMChangeHistory(db.Model):
     field_name = db.Column(db.String(100), nullable=False)
     old_value = db.Column(db.Text)
     new_value = db.Column(db.Text)
-    changed_at = db.Column(db.DateTime(timezone=True), default=datetime.utcnow)
+    changed_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     
     # Relationships
     vm = db.relationship('VM', backref='changes')

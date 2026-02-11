@@ -1,0 +1,9 @@
+--- VM Host Sync Debug ---
+Latest Run ID: 37
+Status: SUCCESS
+Details: {'updated': 0, 'vm_matched': 0, 'host_matched': 0, 'sample_vm_id_api': 'vm-240', 'mappings_received': 316, 'sample_host_id_db': 'host-10', 'sample_vm_uuid_db': '50058ed8-9ca5-d402-8517-4cf92bee2c51', 'sample_host_id_api': 'host-234'}
+Total VMware VMs: 303
+Total VMware Hosts: 13
+VMs with host_identifier: 0
+Sample unmapped VM UUIDs: ['5005ab50-9bef-9c4f-da57-af2d4e8c22d7', '5005489c-0adf-4209-96dd-f578610688c5', '50058ed8-9ca5-d402-8517-4cf92bee2c51', '50053a34-a962-5767-7a2b-a8693e5c7849', '500e3ad5-f8b5-3424-2b11-7505ce24223b']
+Sample Host IDs: ['host-10', 'host-10230', 'host-13239', 'host-139', 'host-16183']
