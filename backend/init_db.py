@@ -14,7 +14,8 @@ from app.models.user import User
 
 def init_db():
     """Initialize database and create default admin user"""
-    app = create_app('development')
+    config_name = os.getenv('FLASK_CONFIG', 'default')
+    app = create_app(config_name)
     
     with app.app_context():
         # Create all tables

@@ -7,17 +7,17 @@ services:
     container_name: vmi_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: vmi_db
-      POSTGRES_USER: vmi_user
-      POSTGRES_PASSWORD: vmi_secret_2024
-      TZ: Asia/Kathmandu
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TZ: ${TZ}
     # ports:
     #   - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./backend/migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U vmi_user -d vmi_db" ]
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -30,22 +30,22 @@ services:
     container_name: vmi_backend
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://vmi_user:vmi_secret_2024@postgres:5432/vmi_db
-      SECRET_KEY: your-super-secret-key-change-in-production
-      JWT_SECRET_KEY: jwt-secret-key-change-in-production
-      SESSION_INACTIVE_TIMEOUT: 1800 # 30 minutes in seconds
-      SESSION_MAX_AGE: 86400 # 1 day in seconds
-      SYNC_API_URL: https://n8n.dishhome.com.np/webhook/bd89be2a-7de0-4c1c-acd4-56f2b7077daf
-      TZ: Asia/Kathmandu
+      DATABASE_URL: ${DATABASE_URL}
+      SECRET_KEY: ${SECRET_KEY}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      SESSION_INACTIVE_TIMEOUT: ${SESSION_INACTIVE_TIMEOUT}
+      SESSION_MAX_AGE: ${SESSION_MAX_AGE}
+      TZ: ${TZ}
     ports:
       - "5000:5000"
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
-      - ./backend:/app
+      - ./backend/migrations:/app/migrations
+      # - ./backend:/app  <-- Removed for production
 
-  # React Frontend
+      # React Frontend
   frontend:
     build:
       context: ./frontend
@@ -54,14 +54,11 @@ services:
     restart: unless-stopped
     environment:
       # VITE_API_URL is now dynamically determined by the frontend based on window.location.hostname
-      TZ: Asia/Kathmandu
+      TZ: ${TZ}
     ports:
       - "3000:3000"
     depends_on:
       - backend
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
 
 volumes:
   postgres_data:

@@ -20,15 +20,17 @@ def init_scheduler(app):
         from app import db
         
         # Initialize default settings
-        SiteSettings.init_defaults()
-        
-        # Start the scheduler
-        if not scheduler.running:
-            scheduler.start()
-            print("[Scheduler] Started")
-        
-        # Schedule sync job based on settings
-        reschedule_sync()
+        try:
+            SiteSettings.init_defaults()
+            # Start the scheduler - ONLY if DB is ready
+            if not scheduler.running:
+                scheduler.start()
+                print("[Scheduler] Started")
+            
+            # Schedule sync job based on settings
+            reschedule_sync()
+        except Exception as e:
+            print(f"[Scheduler] Failed to initialize defaults or start scheduler (likely DB not ready): {e}")
 
 
 def reschedule_sync():

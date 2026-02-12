@@ -15,9 +15,6 @@ class Config:
     SESSION_INACTIVE_TIMEOUT = int(os.environ.get('SESSION_INACTIVE_TIMEOUT', 1800))  # 30 min
     SESSION_MAX_AGE = int(os.environ.get('SESSION_MAX_AGE', 86400))  # 1 day
     
-    # External API
-    SYNC_API_URL = os.environ.get('SYNC_API_URL', 
-        'https://n8n.dishhome.com.np/webhook/bd89be2a-7de0-4c1c-acd4-56f2b7077daf')
 
 
 class DevelopmentConfig(Config):

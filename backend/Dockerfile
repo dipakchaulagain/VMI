@@ -19,5 +19,9 @@ COPY . .
 # Expose port
 EXPOSE 5000
 
-# Run with gunicorn in development mode
-CMD ["python", "run.py"]
+# Copy entrypoint script
+COPY entrypoint.sh .
+RUN chmod +x entrypoint.sh
+
+# Set entrypoint
+ENTRYPOINT ["/app/entrypoint.sh"]

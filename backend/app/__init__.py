@@ -16,8 +16,13 @@ def create_app(config_name='default'):
     # Initialize extensions
     db.init_app(app)
     migrate.init_app(app, db)
-    # Allow CORS from any origin (for LAN/IP-based access)
-    CORS(app, supports_credentials=True, origins='*')
+    
+    # Import models to ensure they are registered with SQLAlchemy
+    # This is crucial for migrations
+    with app.app_context():
+        from . import models
+    # Allow CORS from any origin (Authentication is via Token, no cookies/credentials)
+    CORS(app, origins='*')
     
     # Register blueprints
     from .routes.auth import auth_bp

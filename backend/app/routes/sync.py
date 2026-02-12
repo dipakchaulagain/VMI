@@ -99,60 +99,31 @@ def sync_all():
 @admin_required
 @password_reset_not_required
 def sync_networks():
-    """Sync VMware network mappings"""
-    try:
-        api_url = current_app.config['SYNC_API_URL']
-        response = requests.post(
-            api_url,
-            json={'infra': 'vw-network'},
-            timeout=60
-        )
-        response.raise_for_status()
-        data = response.json()
-        
-        # Parse response - it's an array with vm-network key
-        networks = []
-        if isinstance(data, list):
-            for item in data:
-                if 'vm-network' in item:
-                    networks = item['vm-network']
-                    break
-        
-        # Upsert networks
-        count = 0
-        for net in networks:
-            network_id = net.get('network')
-            name = net.get('name')
-            
-            if not network_id or not name:
-                continue
-            
-            existing = VMwareNetwork.query.filter_by(network_id=network_id).first()
-            if existing:
-                existing.name = name
-                existing.last_sync_at = datetime.now(timezone.utc)
-            else:
-                new_net = VMwareNetwork(
-                    network_id=network_id,
-                    name=name
-                )
-                db.session.add(new_net)
-            count += 1
-        
-        db.session.commit()
-        
-        return jsonify({
-            'status': 'success',
-            'networks_synced': count
-        })
-        
-    except Exception as e:
-        db.session.rollback()
-        log_action('SYNC_ERROR', 'NETWORK', 'vmware', {'error': str(e)})
-        return jsonify({
-            'status': 'error',
-            'error': str(e)
-        }), 500
+    """Sync Network mappings (VMware/Nutanix)"""
+    # Optional platform param, default to vmware to match legacy behavior or sync both?
+    # The original endpoint only did VMware (with 'vw-network' payload).
+    # Let's sync both or Check params?
+    # For now, let's sync VMware as that mimics the original intent, 
+    # but since we have a service, maybe just sync both?
+    
+    # Original behavior was specifically reaching out to a URL that returned VMware networks.
+    # Let's use SyncService for VMware.
+    
+    service = SyncService()
+    result = service.sync_networks('vmware')
+    
+    if result.get('errors'):
+         log_action('SYNC_ERROR', 'NETWORK', 'vmware', {'errors': result.get('errors')})
+         return jsonify({
+             'status': 'warning', 
+             'results': result
+         }), 200
+         
+    log_action('SYNC_TRIGGER', 'NETWORK', 'vmware', {'status': 'success', 'count': result.get('synced', 0)})
+    return jsonify({
+        'status': 'success',
+        'networks_synced': result.get('synced', 0)
+    })
 
 
 @sync_bp.route('/networks', methods=['GET'])
