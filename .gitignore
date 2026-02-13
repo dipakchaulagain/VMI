@@ -23,3 +23,10 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+
+# SSL Certificates
+ssl/*.crt
+ssl/*.key
+
+# Nginx Configuration
+nginx/conf.d/default.conf

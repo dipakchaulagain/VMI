@@ -36,8 +36,7 @@ services:
       SESSION_INACTIVE_TIMEOUT: ${SESSION_INACTIVE_TIMEOUT}
       SESSION_MAX_AGE: ${SESSION_MAX_AGE}
       TZ: ${TZ}
-    ports:
-      - "5000:5000"
+
     depends_on:
       postgres:
         condition: service_healthy
@@ -55,9 +54,23 @@ services:
     environment:
       # VITE_API_URL is now dynamically determined by the frontend based on window.location.hostname
       TZ: ${TZ}
-    ports:
-      - "3000:3000"
+
     depends_on:
+      - backend
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: vmi_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - frontend
       - backend
 
 volumes:

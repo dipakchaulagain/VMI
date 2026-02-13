@@ -6,9 +6,8 @@ const getApiUrl = () => {
     if (import.meta.env.VITE_API_URL) {
         return import.meta.env.VITE_API_URL;
     }
-    // Otherwise, use the current hostname with backend port
-    const hostname = window.location.hostname;
-    return `http://${hostname}:5000/api`;
+    // Default to relative path /api which will be proxied by Nginx
+    return '/api';
 };
 
 const API_URL = getApiUrl();
