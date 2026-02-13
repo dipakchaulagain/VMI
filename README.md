@@ -44,6 +44,13 @@ The application follows a modern containerized architecture:
 - **Authentication**: JWT-based session management (`UserSession` table).
 - **Workers**: Handles synchronous API requests and background sync jobs.
 
+### Nginx Reverse Proxy
+-   **Role**: Reverse Proxy & SSL Termination.
+-   **Routing**:
+    -   `/` -> Frontend (`vmi_frontend:3000`)
+    -   `/api` -> Backend (`vmi_backend:5000`)
+-   **Security**: Handles SSL/TLS encryption and redirects HTTP to HTTPS.
+
 ### Database (`postgres`)
 - **System**: PostgreSQL 15 (Alpine)
 - **Persistence**: Validated relational schema with foreign key constraints.
@@ -52,6 +59,7 @@ The application follows a modern containerized architecture:
 - **`frontend`**: Exposes port `3000`. Connects to backend API.
 - **`backend`**: Exposes port `5000`. Connects to PostgreSQL.
 - **`postgres`**: Stores all application data.
+- **`nginx`**: Public-facing reverse proxy (Ports 80 & 443).
 
 ## Technology Stack
 
@@ -65,6 +73,22 @@ The application follows a modern containerized architecture:
 ### Prerequisites
 - Docker and Docker Compose installed.
 
+### Configuration
+
+#### 1. SSL Certificates
+Create an `ssl` directory in the project root and place your SSL certificates there:
+-   `ssl/fullchain.crt`
+-   `ssl/privkey.key`
+
+> **Note**: The file names must match what is defined in your Nginx configuration.
+
+#### 2. Nginx Configuration
+Copy the example configuration file:
+```bash
+cp nginx/conf.d/default.conf.example nginx/conf.d/default.conf
+```
+Edit `nginx/conf.d/default.conf` if you need to change the domain name or certificate paths.
+
 ### Start the Application
 ```bash
 # Start all services
@@ -72,8 +96,9 @@ docker-compose up -d --build
 ```
 
 ### Access
-- **Frontend**: http://localhost:3000
-- **Backend API**: http://localhost:5000/api
+- **Application**: https://vmi-uat.dishhome.com.np (or your configured domain)
+- **Frontend (Internal)**: Not exposed directly.
+- **Backend API (Internal)**: Not exposed directly.
 
 ### Default Login
 - **Username**: `admin`
