@@ -96,7 +96,7 @@ docker-compose up -d --build
 ```
 
 ### Access
-- **Application**: https://vmi-uat.dishhome.com.np (or your configured domain)
+- **Application**: https://vmi-uat.your-domain.com (or your configured domain)
 - **Frontend (Internal)**: Not exposed directly.
 - **Backend API (Internal)**: Not exposed directly.
 
