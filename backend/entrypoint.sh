@@ -5,9 +5,7 @@ set -e
 
 echo "Starting backend entrypoint..."
 
-# Run database migrations
-echo "Running database migrations..."
-flask db upgrade
+# Skipping Alembic migrations (Direct schema initialization via init_db.py)
 
 # Initialize database (seed admin user)
 echo "Initializing database data..."
