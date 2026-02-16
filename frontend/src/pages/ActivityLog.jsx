@@ -24,7 +24,7 @@ export default function ActivityLog() {
 
     useEffect(() => {
         loadLogs();
-    }, [page, filterAction, filterResource]); // Search user triggers on submit or debounce, for now simple submit
+    }, [page, filterAction, filterResource]);
 
     const loadFilterOptions = async () => {
         try {
@@ -67,7 +67,7 @@ export default function ActivityLog() {
         setFilterResource('');
         setSearchUser('');
         setPage(1);
-        setTimeout(loadLogs, 0); // Trigger reload after state update
+        setTimeout(loadLogs, 0);
     };
 
     const formatDate = (dateString) => {
@@ -85,29 +85,18 @@ export default function ActivityLog() {
 
     const renderDetails = (log) => {
         if (!log.details) return '-';
-
-        // Custom rendering based on action/resource
         if (log.action === 'UPDATE' && log.details.changes) {
             return `Changed: ${log.details.changes.join(', ')}`;
         }
-
         if (log.action === 'LOGIN' && log.details.ip) {
             return `IP: ${log.details.ip}`;
         }
-
-        // Truncate long JSON for display
         const str = JSON.stringify(log.details);
         return str.length > 50 ? str.substring(0, 50) + '...' : str;
     };
 
     return (
-        <div className="container" style={{ padding: '24px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                <h1 style={{ fontSize: '1.5rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <Activity /> Web Activity Log
-                </h1>
-            </div>
-
+        <div style={{ padding: '0' }}>
             {/* Filters */}
             <div className="card" style={{ marginBottom: '24px', padding: '16px' }}>
                 <form onSubmit={handleSearch} style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>

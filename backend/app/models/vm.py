@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from app import db
+from app.models.division import Division
 
 
 class VM(db.Model):
@@ -31,6 +32,8 @@ class VM(db.Model):
     tags = db.relationship('VMTag', backref='vm', lazy='dynamic', cascade='all, delete-orphan')
     manual_ips = db.relationship('VMIpManual', backref='vm', lazy='dynamic', cascade='all, delete-orphan')
     custom_fields = db.relationship('VMCustomField', backref='vm', lazy='dynamic', cascade='all, delete-orphan')
+    public_network = db.relationship('VMPublicNetwork', backref='vm', uselist=False, cascade='all, delete-orphan')
+    dns_records = db.relationship('VMDNSRecord', backref='vm', cascade='all, delete-orphan')
     
     @property
     def inventory_key(self):
@@ -54,7 +57,11 @@ class VM(db.Model):
             data['fact'] = self.fact.to_dict()
         if include_details and self.manual:
             data['manual'] = self.manual.to_dict()
-        
+        if include_details and self.public_network:
+            data['public_network'] = self.public_network.to_dict()
+        if include_details:
+             data['dns_records'] = [r.to_dict() for r in self.dns_records] if self.dns_records else []
+            
         return data
     
     def to_effective_dict(self):
@@ -64,10 +71,23 @@ class VM(db.Model):
         
         data = {
             'id': self.id,
+            'vm_name': self.vm_name,
             'platform': self.platform,
+            'power_state': 'unknown',
+            'memory_gb': 0,
+            'total_disk_gb': 0,
+            'total_vcpus': 0,
+            'ip_address': None,
+            'os_type': None,
+            'os_family': None,
+            'environment': None,
+            'cluster_name': None,
+            'host': None,
+            'tags': [],
+            'has_public_ip': True if self.public_network and self.public_network.is_active else False,
+            'has_dns_record': True if self.dns_records and any(r.is_active for r in self.dns_records) else False,
             'vm_uuid': self.vm_uuid,
             'inventory_key': self.inventory_key,
-            'vm_name': self.vm_name,
             'bios_uuid': self.bios_uuid,
             'is_deleted': self.is_deleted,
             'first_seen_at': self.first_seen_at.isoformat() if self.first_seen_at else None,
@@ -121,6 +141,9 @@ class VM(db.Model):
             data.update({
                 'business_owner_id': manual.business_owner_id,
                 'technical_owner_id': manual.technical_owner_id,
+                'division_id': manual.division_id,
+                'division_name': manual.division.name if manual.division else None,
+                'department': manual.division.department if manual.division else None,
                 'project_name': manual.project_name,
                 'environment': manual.environment,
                 'notes': manual.notes
@@ -172,6 +195,20 @@ class VM(db.Model):
                 first_ip = nic_ips[0]
         
         data['ip_address'] = first_ip
+
+        # Public Network & DNS flags
+        data['has_public_ip'] = bool(self.public_network and self.public_network.is_active)
+        
+        # DNS records - handled as collection
+        active_dns = [r for r in self.dns_records if r.is_active]
+        data['has_dns_record'] = len(active_dns) > 0
+        
+        if self.public_network and self.public_network.is_active:
+             data['public_network'] = self.public_network.to_dict()
+
+        if active_dns:
+             data['dns_record'] = active_dns[0].to_dict()  # Return first active for compatibility if needed
+             data['dns_records'] = [r.to_dict() for r in active_dns]
 
         return data
 
@@ -349,6 +386,7 @@ class VMManual(db.Model):
     
     business_owner_id = db.Column(db.BigInteger, db.ForeignKey('owners.id', ondelete='SET NULL'))
     technical_owner_id = db.Column(db.BigInteger, db.ForeignKey('owners.id', ondelete='SET NULL'))
+    division_id = db.Column(db.BigInteger, db.ForeignKey('divisions.id', ondelete='SET NULL'))
     project_name = db.Column(db.String(255))
     environment = db.Column(db.String(50))
     
@@ -372,6 +410,7 @@ class VMManual(db.Model):
     # Relationships
     business_owner = db.relationship('Owner', foreign_keys=[business_owner_id])
     technical_owner = db.relationship('Owner', foreign_keys=[technical_owner_id])
+    division = db.relationship('Division')
     
     def to_dict(self):
         """Convert to dictionary"""
@@ -381,6 +420,9 @@ class VMManual(db.Model):
             'business_owner': self.business_owner.full_name if self.business_owner else None,
             'technical_owner_id': self.technical_owner_id,
             'technical_owner': self.technical_owner.full_name if self.technical_owner else None,
+            'division_id': self.division_id,
+            'division_name': self.division.name if self.division else None,
+            'department': self.division.department if self.division else None,
             'project_name': self.project_name,
             'environment': self.environment,
             'notes': self.notes,

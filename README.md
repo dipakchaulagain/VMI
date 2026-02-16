@@ -9,8 +9,10 @@ A comprehensive web platform for managing VM inventory across Nutanix and VMware
 - **Change Tracking**: Automatically detect and log changes in power state, CPU, memory, disk, network, and placement.
 - **Audit Logging**: Comprehensive activity log tracking user logins, VM updates, owner changes, and system configuration modifications.
 - **Dashboard Analytics**:
-  - Real-time platform distribution stats.
-  - Comprehensive Network Statistics (Total, In Use, Not In Use).
+  - **Interactive Distribution**: Clickable platform, OS family, and cluster distribution stats.
+  - **Clickable Stat Cards**: Direct navigation from summary metrics to filtered inventory views.
+  - **OS Family Distribution**: Breakdown of inventory by OS family (Windows, Linux, etc.).
+  - **Comprehensive Network Statistics**: Total, In Use, and Not In Use metrics.
   - Change history and power state summary.
 
 ### Inventory Management
@@ -22,6 +24,10 @@ A comprehensive web platform for managing VM inventory across Nutanix and VMware
 ### User & Owner Management
 - **Role-Based Access Control**: Admin and Viewer roles.
 - **Owner Tracking**: Distinct tracking for Business Owner and Technical Owner per VM.
+- **Division Management**:
+  - Organize inventory and hypervisors by logical divisions.
+  - Live VM counts per division with direct navigation.
+  - Division-based filtering in inventory and dashboards.
 - **Session Management**: Secure session handling with timeouts.
 
 ## Project Architecture

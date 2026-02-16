@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { settingsApi, syncApi, vmsApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import ActivityLog from './ActivityLog';
+import ChangeHistory from './ChangeHistory';
 import {
     Settings,
     Clock,
@@ -16,13 +18,14 @@ import {
     Power,
     RefreshCw,
     Save,
-    Download
+    Download,
+    Activity,
+    History
 } from 'lucide-react';
 
 export default function SettingsPage() {
     const [activeTab, setActiveTab] = useState('sync');
 
-    // Sync Settings State
     const [syncSettings, setSyncSettings] = useState({
         sync_enabled: false,
         sync_interval_minutes: 60,
@@ -230,6 +233,20 @@ export default function SettingsPage() {
                 >
                     <Download size={16} style={{ marginRight: '8px' }} /> Export Data
                 </button>
+                <button
+                    className={`btn ${activeTab === 'activity' ? 'btn-primary' : 'btn-text'}`}
+                    style={{ borderRadius: '4px 4px 0 0', borderBottom: activeTab === 'activity' ? '2px solid var(--primary-color)' : 'none' }}
+                    onClick={() => setActiveTab('activity')}
+                >
+                    <Activity size={16} style={{ marginRight: '8px' }} /> Web Activity
+                </button>
+                <button
+                    className={`btn ${activeTab === 'changes' ? 'btn-primary' : 'btn-text'}`}
+                    style={{ borderRadius: '4px 4px 0 0', borderBottom: activeTab === 'changes' ? '2px solid var(--primary-color)' : 'none' }}
+                    onClick={() => setActiveTab('changes')}
+                >
+                    <History size={16} style={{ marginRight: '8px' }} /> Change History
+                </button>
             </div>
 
             {activeTab === 'sync' && (
@@ -430,6 +447,18 @@ export default function SettingsPage() {
                             </button>
                         </div>
                     </div>
+                </div>
+            )}
+
+            {activeTab === 'activity' && (
+                <div className="settings-content">
+                    <ActivityLog />
+                </div>
+            )}
+
+            {activeTab === 'changes' && (
+                <div className="settings-content">
+                    <ChangeHistory />
                 </div>
             )}
 

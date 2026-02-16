@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { vmsApi, ownersApi, authApi } from '../services/api';
+import { vmsApi, ownersApi, divisionsApi, authApi } from '../services/api';
 import {
     Server,
     Search,
@@ -30,8 +30,10 @@ export default function VMInventory() {
     const [osFamily, setOsFamily] = useState('');
     const [tag, setTag] = useState('');
     const [ownerId, setOwnerId] = useState('');
+    const [divisionId, setDivisionId] = useState('');
     const [tags, setTags] = useState([]);
     const [owners, setOwners] = useState([]);
+    const [divisions, setDivisions] = useState([]);
     const [currentUser, setCurrentUser] = useState(null);
 
     // Modal state for Quick Assign Tech Owner
@@ -41,15 +43,20 @@ export default function VMInventory() {
     const [assigning, setAssigning] = useState(false);
 
     // Get filter params from URL
+    const platformParam = searchParams.get('platform');
+    const powerStateParam = searchParams.get('power_state');
+    const osFamilyParam = searchParams.get('os_family');
+    const clusterParam = searchParams.get('cluster');
     const ownerIdParam = searchParams.get('owner_id');
     const networkParam = searchParams.get('network');
     const hostIdentifierParam = searchParams.get('host_identifier');
-    const filterActive = ownerIdParam || networkParam || hostIdentifierParam;
+    const divisionIdParam = searchParams.get('division_id');
+    const filterActive = platformParam || powerStateParam || osFamilyParam || clusterParam || ownerIdParam || networkParam || hostIdentifierParam || divisionIdParam;
 
     useEffect(() => {
         loadVMs();
         checkUserRole();
-    }, [page, platform, powerState, ownerIdParam, networkParam, hostIdentifierParam, osFamily, tag, ownerId, sortBy, sortOrder]);
+    }, [page, platform, powerState, platformParam, powerStateParam, osFamilyParam, clusterParam, ownerIdParam, networkParam, hostIdentifierParam, divisionIdParam, osFamily, tag, ownerId, divisionId, sortBy, sortOrder]);
 
     const checkUserRole = async () => {
         const userStr = localStorage.getItem('user');
@@ -63,16 +70,18 @@ export default function VMInventory() {
         }
     };
 
-    // Load tags and owners for filter dropdowns
+    // Load tags, owners, and divisions for filter dropdowns
     useEffect(() => {
         const loadFilterData = async () => {
             try {
-                const [summaryRes, ownersRes] = await Promise.all([
+                const [summaryRes, ownersRes, divisionsRes] = await Promise.all([
                     vmsApi.getSummary(),
-                    ownersApi.list()
+                    ownersApi.list(),
+                    divisionsApi.list()
                 ]);
                 if (summaryRes.data.tags) setTags(summaryRes.data.tags);
                 if (ownersRes.data.owners) setOwners(ownersRes.data.owners);
+                if (divisionsRes.data.divisions) setDivisions(divisionsRes.data.divisions);
             } catch (error) {
                 console.error('Failed to load filter data:', error);
             }
@@ -87,13 +96,15 @@ export default function VMInventory() {
                 page,
                 per_page: 20,
                 search: search || undefined,
-                platform: platform || undefined,
-                power_state: powerState || undefined,
+                platform: platformParam || platform || undefined,
+                power_state: powerStateParam || powerState || undefined,
                 network: networkParam || undefined,
                 host_identifier: hostIdentifierParam || undefined,
-                os_family: osFamily || undefined,
+                os_family: osFamilyParam || osFamily || undefined,
+                cluster: clusterParam || undefined,
                 tag: tag || undefined,
                 owner_id: ownerIdParam || ownerId || undefined,
+                division_id: divisionIdParam || divisionId || undefined,
                 sort_by: sortBy,
                 order: sortOrder
             });
@@ -199,14 +210,16 @@ export default function VMInventory() {
         tags: { label: 'Tags', visible: true },
         platform: { label: 'Platform', visible: true },
         power_state: { label: 'Power', visible: true },
-        cluster_name: { label: 'Cluster', visible: true },
+        cluster_name: { label: 'Cluster', visible: false },
         host: { label: 'Host', visible: true },
-        os_type: { label: 'OS Type', visible: true },
+        os_type: { label: 'OS Type', visible: false },
         os_family: { label: 'OS Family', visible: true },
         total_vcpus: { label: 'vCPUs', visible: false },
         memory_gb: { label: 'Memory', visible: true },
         total_disk_gb: { label: 'Storage', visible: true },
-        environment: { label: 'Environment', visible: true },
+        environment: { label: 'Environment', visible: false },
+        has_public_ip: { label: 'Public IP', visible: false },
+        has_dns_record: { label: 'DNS Record', visible: false },
     });
 
     const toggleColumn = (key) => {
@@ -223,10 +236,16 @@ export default function VMInventory() {
             {/* Active Filter Indicator */}
             {filterActive && (
                 <div className="alert alert-info" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span>
-                        Filtering VMs by: {ownerIdParam && <strong>Owner ID {ownerIdParam}</strong>}
-                        {networkParam && <strong>Network: {networkParam}</strong>}
-                    </span>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
+                        <span>Filtering VMs by:</span>
+                        {platformParam && <span className="badge badge-info">Platform: {platformParam}</span>}
+                        {powerStateParam && <span className="badge badge-info">Power: {powerStateParam}</span>}
+                        {osFamilyParam && <span className="badge badge-info">OS: {osFamilyParam}</span>}
+                        {clusterParam && <span className="badge badge-info">Cluster: {clusterParam}</span>}
+                        {ownerIdParam && <span className="badge badge-info">Owner ID: {ownerIdParam}</span>}
+                        {networkParam && <span className="badge badge-info">Network: {networkParam}</span>}
+                        {divisionIdParam && <span className="badge badge-info">Division: {divisions.find(d => d.id.toString() === divisionIdParam)?.name || divisionIdParam}</span>}
+                    </div>
                     <button className="btn btn-sm btn-secondary" onClick={clearFilters}>
                         <X size={14} /> Clear Filter
                     </button>
@@ -264,41 +283,47 @@ export default function VMInventory() {
                             />
                         </div>
 
-                        <select
-                            className="form-input form-select"
-                            value={platform}
-                            onChange={(e) => { setPlatform(e.target.value); setPage(1); }}
-                            style={{ width: 'auto', minWidth: '140px' }}
-                        >
-                            <option value="">All Platforms</option>
-                            <option value="nutanix">Nutanix</option>
-                            <option value="vmware">VMware</option>
-                        </select>
+                        {!platformParam && (
+                            <select
+                                className="form-input form-select"
+                                value={platform}
+                                onChange={(e) => { setPlatform(e.target.value); setPage(1); }}
+                                style={{ width: 'auto', minWidth: '140px' }}
+                            >
+                                <option value="">All Platforms</option>
+                                <option value="nutanix">Nutanix</option>
+                                <option value="vmware">VMware</option>
+                            </select>
+                        )}
 
-                        <select
-                            className="form-input form-select"
-                            value={powerState}
-                            onChange={(e) => { setPowerState(e.target.value); setPage(1); }}
-                            style={{ width: 'auto', minWidth: '150px' }}
-                        >
-                            <option value="">All Power States</option>
-                            <option value="ON">Powered On</option>
-                            <option value="OFF">Powered Off</option>
-                            <option value="SUSPENDED">Suspended</option>
-                        </select>
+                        {!powerStateParam && (
+                            <select
+                                className="form-input form-select"
+                                value={powerState}
+                                onChange={(e) => { setPowerState(e.target.value); setPage(1); }}
+                                style={{ width: 'auto', minWidth: '150px' }}
+                            >
+                                <option value="">All Power States</option>
+                                <option value="ON">Powered On</option>
+                                <option value="OFF">Powered Off</option>
+                                <option value="SUSPENDED">Suspended</option>
+                            </select>
+                        )}
 
-                        <select
-                            className="form-input form-select"
-                            value={osFamily}
-                            onChange={(e) => { setOsFamily(e.target.value); setPage(1); }}
-                            style={{ width: 'auto', minWidth: '140px' }}
-                        >
-                            <option value="">All OS Families</option>
-                            <option value="Windows">Windows</option>
-                            <option value="Linux">Linux</option>
-                            <option value="Other">Other</option>
-                            <option value="N/A">N/A</option>
-                        </select>
+                        {!osFamilyParam && (
+                            <select
+                                className="form-input form-select"
+                                value={osFamily}
+                                onChange={(e) => { setOsFamily(e.target.value); setPage(1); }}
+                                style={{ width: 'auto', minWidth: '140px' }}
+                            >
+                                <option value="">All OS Families</option>
+                                <option value="Windows">Windows</option>
+                                <option value="Linux">Linux</option>
+                                <option value="Other">Other</option>
+                                <option value="N/A">N/A</option>
+                            </select>
+                        )}
 
                         <select
                             className="form-input form-select"
@@ -322,6 +347,20 @@ export default function VMInventory() {
                                 <option value="">All Owners</option>
                                 {owners.map(o => (
                                     <option key={o.id} value={o.id}>{o.full_name}</option>
+                                ))}
+                            </select>
+                        )}
+
+                        {!divisionIdParam && (
+                            <select
+                                className="form-input form-select"
+                                value={divisionId}
+                                onChange={(e) => { setDivisionId(e.target.value); setPage(1); }}
+                                style={{ width: 'auto', minWidth: '150px' }}
+                            >
+                                <option value="">All Divisions</option>
+                                {divisions.map(d => (
+                                    <option key={d.id} value={d.id}>{d.name}</option>
                                 ))}
                             </select>
                         )}
@@ -452,6 +491,8 @@ export default function VMInventory() {
                                         </div>
                                     </th>
                                 )}
+                                {columns.has_public_ip.visible && <th>Public IP</th>}
+                                {columns.has_dns_record.visible && <th>DNS</th>}
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -599,6 +640,28 @@ export default function VMInventory() {
                                         </td>
                                     )}
 
+                                    {/* Public IP Flag */}
+                                    {columns.has_public_ip.visible && (
+                                        <td>
+                                            {vm.has_public_ip ? (
+                                                <span className="badge badge-success">Yes</span>
+                                            ) : (
+                                                <span className="badge badge-neutral" style={{ opacity: 0.5 }}>No</span>
+                                            )}
+                                        </td>
+                                    )}
+
+                                    {/* DNS Record Flag */}
+                                    {columns.has_dns_record.visible && (
+                                        <td>
+                                            {vm.has_dns_record ? (
+                                                <span className="badge badge-success">Yes</span>
+                                            ) : (
+                                                <span className="badge badge-neutral" style={{ opacity: 0.5 }}>No</span>
+                                            )}
+                                        </td>
+                                    )}
+
                                     <td>
                                         <div style={{ display: 'flex', gap: '8px' }}>
                                             <Link to={`/vms/${vm.id}`} className="btn btn-sm btn-secondary">
@@ -620,79 +683,84 @@ export default function VMInventory() {
                         </tbody>
                     </table>
                 </div>
-            )}
+            )
+            }
 
             {/* Pagination */}
-            {totalPages > 1 && (
-                <div className="pagination">
-                    <button
-                        className="pagination-btn"
-                        disabled={page === 1}
-                        onClick={() => setPage(page - 1)}
-                    >
-                        <ChevronLeft size={16} /> Prev
-                    </button>
-                    <span className="pagination-info">
-                        Page {page} of {totalPages}
-                    </span>
-                    <button
-                        className="pagination-btn"
-                        disabled={page === totalPages}
-                        onClick={() => setPage(page + 1)}
-                    >
-                        Next <ChevronRight size={16} />
-                    </button>
-                </div>
-            )}
+            {
+                totalPages > 1 && (
+                    <div className="pagination">
+                        <button
+                            className="pagination-btn"
+                            disabled={page === 1}
+                            onClick={() => setPage(page - 1)}
+                        >
+                            <ChevronLeft size={16} /> Prev
+                        </button>
+                        <span className="pagination-info">
+                            Page {page} of {totalPages}
+                        </span>
+                        <button
+                            className="pagination-btn"
+                            disabled={page === totalPages}
+                            onClick={() => setPage(page + 1)}
+                        >
+                            Next <ChevronRight size={16} />
+                        </button>
+                    </div>
+                )
+            }
 
             {/* Quick Assign Tech Owner Modal */}
-            {showAssignModal && selectedVm && (
-                <div className="modal-overlay">
-                    <div className="modal-content" style={{ width: '400px', backgroundColor: 'var(--bg-secondary)' }}>
-                        <div className="modal-header">
-                            <h3>Assign Technical Owner</h3>
-                            <button className="btn btn-icon" onClick={closeAssignModal}>
-                                <X size={20} />
-                            </button>
-                        </div>
-                        <div className="modal-body">
-                            <div className="form-group">
-                                <label style={{ display: 'block', marginBottom: '8px' }}>VM Name</label>
-                                <div style={{ padding: '8px', background: 'var(--bg-tertiary)', borderRadius: '4px', marginBottom: '16px' }}>
-                                    {selectedVm.vm_name}
+            {
+                showAssignModal && selectedVm && (
+                    <div className="modal-overlay">
+                        <div className="modal-content" style={{ width: '400px', backgroundColor: 'var(--bg-secondary)' }}>
+                            <div className="modal-header">
+                                <h3>Assign Technical Owner</h3>
+                                <button className="btn btn-icon" onClick={closeAssignModal}>
+                                    <X size={20} />
+                                </button>
+                            </div>
+                            <div className="modal-body">
+                                <div className="form-group">
+                                    <label style={{ display: 'block', marginBottom: '8px' }}>VM Name</label>
+                                    <div style={{ padding: '8px', background: 'var(--bg-tertiary)', borderRadius: '4px', marginBottom: '16px' }}>
+                                        {selectedVm.vm_name}
+                                    </div>
+                                </div>
+
+                                <div className="form-group">
+                                    <label htmlFor="techOwnerSelect" style={{ display: 'block', marginBottom: '8px' }}>Technical Owner</label>
+                                    <select
+                                        id="techOwnerSelect"
+                                        className="form-input form-select"
+                                        value={selectedTechOwner}
+                                        onChange={(e) => setSelectedTechOwner(e.target.value)}
+                                        style={{ width: '100%' }}
+                                    >
+                                        <option value="">Select Technical Owner</option>
+                                        {owners.map(owner => (
+                                            <option key={owner.id} value={owner.id}>
+                                                {owner.full_name} ({owner.email})
+                                            </option>
+                                        ))}
+                                    </select>
                                 </div>
                             </div>
-
-                            <div className="form-group">
-                                <label htmlFor="techOwnerSelect" style={{ display: 'block', marginBottom: '8px' }}>Technical Owner</label>
-                                <select
-                                    id="techOwnerSelect"
-                                    className="form-input form-select"
-                                    value={selectedTechOwner}
-                                    onChange={(e) => setSelectedTechOwner(e.target.value)}
-                                    style={{ width: '100%' }}
-                                >
-                                    <option value="">Select Technical Owner</option>
-                                    {owners.map(owner => (
-                                        <option key={owner.id} value={owner.id}>
-                                            {owner.full_name} ({owner.email})
-                                        </option>
-                                    ))}
-                                </select>
+                            <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '24px' }}>
+                                <button className="btn btn-secondary" onClick={closeAssignModal} disabled={assigning}>
+                                    Cancel
+                                </button>
+                                <button className="btn btn-primary" onClick={handleAssignOwner} disabled={assigning}>
+                                    {assigning ? 'Saving...' : 'Save'}
+                                </button>
                             </div>
                         </div>
-                        <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '24px' }}>
-                            <button className="btn btn-secondary" onClick={closeAssignModal} disabled={assigning}>
-                                Cancel
-                            </button>
-                            <button className="btn btn-primary" onClick={handleAssignOwner} disabled={assigning}>
-                                {assigning ? 'Saving...' : 'Save'}
-                            </button>
-                        </div>
                     </div>
-                </div>
-            )}
-        </div>
+                )
+            }
+        </div >
     );
 }
 

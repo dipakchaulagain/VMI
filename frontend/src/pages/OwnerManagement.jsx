@@ -9,7 +9,8 @@ import {
     Trash2,
     X,
     Link,
-    Server
+    Server,
+    Search
 } from 'lucide-react';
 
 export default function OwnerManagement() {
@@ -26,17 +27,26 @@ export default function OwnerManagement() {
         user_id: ''
     });
     const [error, setError] = useState('');
+    const [search, setSearch] = useState('');
+    const [debouncedSearch, setDebouncedSearch] = useState('');
     const { isAdmin } = useAuth();
     const navigate = useNavigate();
 
     useEffect(() => {
         loadData();
-    }, []);
+    }, [debouncedSearch]);
+
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setDebouncedSearch(search);
+        }, 300);
+        return () => clearTimeout(timer);
+    }, [search]);
 
     const loadData = async () => {
         try {
             const [ownersRes, usersRes] = await Promise.all([
-                ownersApi.list({ per_page: 100 }),
+                ownersApi.list({ per_page: 100, search: debouncedSearch }),
                 isAdmin ? usersApi.list({ per_page: 100 }) : Promise.resolve({ data: { users: [] } })
             ]);
             setOwners(ownersRes.data.owners);
@@ -119,10 +129,22 @@ export default function OwnerManagement() {
 
     return (
         <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>
-                <p style={{ color: 'var(--text-secondary)' }}>
-                    {owners.length} owners
-                </p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', gap: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1 }}>
+                    <p style={{ color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                        {owners.length} owners
+                    </p>
+                    <div className="search-wrapper" style={{ maxWidth: '400px' }}>
+                        <Search className="search-icon" size={18} />
+                        <input
+                            type="text"
+                            className="search-input"
+                            placeholder="Search owners by name, email, or department..."
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                        />
+                    </div>
+                </div>
                 {isAdmin && (
                     <button className="btn btn-primary" onClick={openCreateModal}>
                         <Plus size={16} /> Add Owner

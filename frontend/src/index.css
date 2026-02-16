@@ -143,6 +143,10 @@ h3 {
   box-shadow: var(--shadow-glow);
 }
 
+.item-hover:hover {
+  background: var(--bg-tertiary) !important;
+}
+
 .card-header {
   display: flex;
   justify-content: space-between;

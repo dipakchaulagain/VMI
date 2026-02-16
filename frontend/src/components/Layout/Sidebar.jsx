@@ -11,7 +11,10 @@ import {
     Settings,
     Network,
     HardDrive,
-    Activity
+    Activity,
+    Globe,
+    Shield,
+    Layers
 } from 'lucide-react';
 import './Sidebar.css';
 
@@ -24,14 +27,15 @@ export default function Sidebar() {
         { path: '/vms', icon: Server, label: 'VM Inventory' },
         { path: '/hypervisors', icon: HardDrive, label: 'Hypervisors' },
         { path: '/networks', icon: Network, label: 'Networks' },
-        { path: '/changes', icon: History, label: 'Change History' },
+        { path: '/public-networks', icon: Globe, label: 'Public Networks' },
+        { path: '/dns-records', icon: Shield, label: 'DNS Records' },
         { path: '/owners', icon: UserCircle, label: 'Owners' },
     ];
 
     const adminItems = [
         { path: '/users', icon: Users, label: 'User Management' },
+        { path: '/divisions', icon: Layers, label: 'Divisions' },
         { path: '/sync', icon: RefreshCw, label: 'Sync Management' },
-        { path: '/activity', icon: Activity, label: 'Web Activity' },
         { path: '/settings', icon: Settings, label: 'Settings' },
     ];
 

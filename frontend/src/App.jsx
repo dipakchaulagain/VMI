@@ -15,6 +15,9 @@ import NetworkManagement from './pages/NetworkManagement';
 import Settings from './pages/Settings';
 import Hypervisors from './pages/Hypervisors';
 import ActivityLog from './pages/ActivityLog';
+import PublicNetworkList from './pages/PublicNetworkList';
+import DNSRecordList from './pages/DNSRecordList';
+import DivisionManagement from './pages/DivisionManagement';
 
 function PrivateRoute({ children, adminOnly = false }) {
     const { user, loading, mustResetPassword, isAdmin } = useAuth();
@@ -59,6 +62,8 @@ function AppRoutes() {
                 <Route index element={<Dashboard />} />
                 <Route path="vms" element={<VMInventory />} />
                 <Route path="vms/:id" element={<VMDetail />} />
+                <Route path="public-networks" element={<PublicNetworkList />} />
+                <Route path="dns-records" element={<DNSRecordList />} />
                 <Route path="changes" element={<ChangeHistory />} />
                 <Route path="networks" element={<NetworkManagement />} />
                 <Route path="users" element={
@@ -67,6 +72,7 @@ function AppRoutes() {
                     </PrivateRoute>
                 } />
                 <Route path="owners" element={<OwnerManagement />} />
+                <Route path="divisions" element={<DivisionManagement />} />
                 <Route path="sync" element={
                     <PrivateRoute adminOnly>
                         <SyncManagement />

@@ -35,6 +35,7 @@ def create_app(config_name='default'):
     from .routes.settings import settings_bp
     from .routes.hosts import hosts_bp
     from .routes.audit import audit_bp
+    from .routes.network_features import network_features_bp
     
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(users_bp, url_prefix='/api/users')
@@ -46,6 +47,7 @@ def create_app(config_name='default'):
     app.register_blueprint(settings_bp, url_prefix='/api/settings')
     app.register_blueprint(hosts_bp, url_prefix='/api/hosts')
     app.register_blueprint(audit_bp, url_prefix='/api/audit')
+    app.register_blueprint(network_features_bp, url_prefix='/api/network-features')
     
     # Health check endpoint
     @app.route('/api/health')
@@ -59,5 +61,8 @@ def create_app(config_name='default'):
             app._scheduler_initialized = True
             from .services.scheduler import init_scheduler
             init_scheduler(app)
+    
+    from app.routes.divisions import divisions_bp
+    app.register_blueprint(divisions_bp, url_prefix='/api/divisions')
     
     return app

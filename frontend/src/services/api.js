@@ -86,6 +86,17 @@ export const vmsApi = {
     addManualIp: (id, data) => api.post(`/vms/${id}/manual-ips`, data),
     removeManualIp: (id, ipId) => api.delete(`/vms/${id}/manual-ips/${ipId}`),
     exportVMs: (params) => api.get('/vms/export', { params, responseType: 'blob' }),
+    updatePublicNetwork: (id, data) => api.put(`/vms/${id}/public-network`, data),
+    updateDNSRecord: async (id, data) => {
+        const response = await api.put(`/vms/${id}/dns-records`, data);
+        return response.data;
+    },
+};
+
+// Network Features API
+export const networkFeaturesApi = {
+    listPublicNetworks: () => api.get('/network-features/public-networks'),
+    listDNSRecords: () => api.get('/network-features/dns-records'),
 };
 
 // Sync API
@@ -136,6 +147,14 @@ export const hostsApi = {
     sync: (platform) => api.post('/hosts/sync', {}, { params: { platform } }),
 };
 
+
+// Divisions API
+export const divisionsApi = {
+    list: () => api.get('/divisions'),
+    create: (data) => api.post('/divisions', data),
+    update: (id, data) => api.put(`/divisions/${id}`, data),
+    delete: (id) => api.delete(`/divisions/${id}`)
+};
 
 // Audit API
 export const auditApi = {

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { vmsApi, changesApi, ownersApi, hostsApi } from '../services/api';
+import { vmsApi, changesApi, ownersApi, hostsApi, divisionsApi } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import {
     Server,
@@ -20,7 +20,10 @@ import {
     Save,
     ArrowLeft,
     Trash2,
-    Monitor
+    Monitor,
+    Globe,
+    Shield,
+    Layers
 } from 'lucide-react';
 
 export default function VMDetail() {
@@ -29,11 +32,16 @@ export default function VMDetail() {
     const [vm, setVm] = useState(null);
     const [changes, setChanges] = useState([]);
     const [owners, setOwners] = useState([]);
+    const [divisions, setDivisions] = useState([]);
     const [loading, setLoading] = useState(true);
     const [editMode, setEditMode] = useState(false);
     const [ownershipEditing, setOwnershipEditing] = useState(false);
     const [guestInfoEditing, setGuestInfoEditing] = useState(false);
+    const [publicNetworkEditing, setPublicNetworkEditing] = useState(false);
+    const [dnsRecordEditing, setDnsRecordEditing] = useState(false);
     const [manualData, setManualData] = useState({});
+    const [publicNetworkData, setPublicNetworkData] = useState({});
+    const [dnsRecordsData, setDnsRecordsData] = useState([]);
     const [newTagValue, setNewTagValue] = useState('');
     const [addingTag, setAddingTag] = useState(false);
     const [addingIp, setAddingIp] = useState(false);
@@ -47,16 +55,18 @@ export default function VMDetail() {
 
     const loadVM = async () => {
         try {
-            const [vmRes, changesRes, ownersRes, hostsRes] = await Promise.all([
+            const [vmRes, changesRes, ownersRes, hostsRes, divisionsRes] = await Promise.all([
                 vmsApi.get(id),
                 changesApi.getVmChanges(id, { per_page: 20 }),
                 ownersApi.list({ per_page: 100 }),
-                hostsApi.list()
+                hostsApi.list(),
+                divisionsApi.list()
             ]);
 
             setVm(vmRes.data.vm);
             setChanges(changesRes.data.changes);
             setOwners(ownersRes.data.owners);
+            setDivisions(divisionsRes.data.divisions);
 
             if (hostsRes.data && hostsRes.data.hosts) {
                 const map = {};
@@ -69,8 +79,7 @@ export default function VMDetail() {
             setManualData({
                 business_owner_id: vmRes.data.vm.business_owner_id || '',
                 technical_owner_id: vmRes.data.vm.technical_owner_id || '',
-                project_name: vmRes.data.vm.project_name || '',
-                environment: vmRes.data.vm.environment || '',
+                division_id: vmRes.data.vm.division_id || '',
                 project_name: vmRes.data.vm.project_name || '',
                 environment: vmRes.data.vm.environment || '',
                 notes: vmRes.data.vm.notes || '',
@@ -78,6 +87,18 @@ export default function VMDetail() {
                 manual_os_type: vmRes.data.vm.os_type || '',
                 manual_os_family: vmRes.data.vm.os_family || ''
             });
+
+            if (vmRes.data.vm.public_network) {
+                setPublicNetworkData(vmRes.data.vm.public_network);
+            } else {
+                setPublicNetworkData({ is_active: false, snat_ip: '', dnat_ip: '', dnat_exposed_ports: '', dnat_source_region: '' });
+            }
+
+            if (vmRes.data.vm.dns_records) {
+                setDnsRecordsData(vmRes.data.vm.dns_records);
+            } else {
+                setDnsRecordsData([]);
+            }
         } catch (error) {
             console.error('Failed to load VM:', error);
         } finally {
@@ -169,6 +190,7 @@ export default function VMDetail() {
             await vmsApi.updateManual(id, {
                 business_owner_id: manualData.business_owner_id,
                 technical_owner_id: manualData.technical_owner_id,
+                division_id: manualData.division_id,
                 project_name: manualData.project_name,
                 environment: manualData.environment
             });
@@ -195,6 +217,49 @@ export default function VMDetail() {
         } catch (error) {
             console.error('Failed to save guest info:', error);
             alert('Failed to save guest info details');
+        }
+    };
+
+    const handlePublicNetworkSave = async () => {
+        try {
+            await vmsApi.updatePublicNetwork(id, publicNetworkData);
+            await loadVM();
+            setPublicNetworkEditing(false);
+        } catch (error) {
+            console.error('Failed to save public network:', error);
+            alert('Failed to save public network details');
+        }
+    };
+
+    const handleAddDnsRecord = () => {
+        setDnsRecordsData([...dnsRecordsData, {
+            internal_dns: '',
+            external_dns: '',
+            ssl_enabled: false,
+            is_active: true
+        }]);
+    };
+
+    const handleRemoveDnsRecord = (index) => {
+        const newRecords = [...dnsRecordsData];
+        newRecords.splice(index, 1);
+        setDnsRecordsData(newRecords);
+    };
+
+    const handleDnsRecordChange = (index, field, value) => {
+        const newRecords = [...dnsRecordsData];
+        newRecords[index] = { ...newRecords[index], [field]: value };
+        setDnsRecordsData(newRecords);
+    };
+
+    const handleDnsRecordsSave = async () => {
+        try {
+            await vmsApi.updateDNSRecord(id, dnsRecordsData);
+            await loadVM();
+            setDnsRecordEditing(false);
+        } catch (error) {
+            console.error('Failed to save DNS records:', error);
+            alert('Failed to save DNS records');
         }
     };
 
@@ -397,6 +462,235 @@ export default function VMDetail() {
                     </div>
                 </div>
 
+                {/* Public Network - Editable */}
+                <div className="card">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                        <h3 className="card-title" style={{ margin: 0 }}>
+                            <Globe size={18} style={{ marginRight: '8px' }} /> Public Network
+                        </h3>
+                        {isAdmin && !publicNetworkEditing && (
+                            <button className="btn btn-sm btn-secondary" onClick={() => setPublicNetworkEditing(true)}>Edit</button>
+                        )}
+                        {publicNetworkEditing && (
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <button className="btn btn-sm btn-primary" onClick={handlePublicNetworkSave}>Save</button>
+                                <button className="btn btn-sm btn-secondary" onClick={() => {
+                                    setPublicNetworkEditing(false);
+                                    if (vm.public_network) {
+                                        setPublicNetworkData(vm.public_network);
+                                    } else {
+                                        setPublicNetworkData({ is_active: false, snat_ip: '', dnat_ip: '', dnat_exposed_ports: '', dnat_source_region: '' });
+                                    }
+                                }}>Cancel</button>
+                            </div>
+                        )}
+                    </div>
+                    {publicNetworkEditing ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            <div className="form-group" style={{ marginBottom: 0 }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={publicNetworkData.is_active || false}
+                                        onChange={(e) => setPublicNetworkData({ ...publicNetworkData, is_active: e.target.checked })}
+                                    />
+                                    Active / Enabled
+                                </label>
+                            </div>
+                            <div className="form-group" style={{ marginBottom: 0 }}>
+                                <label className="form-label">SNAT IP</label>
+                                <input
+                                    type="text"
+                                    className="form-input"
+                                    value={publicNetworkData.snat_ip || ''}
+                                    onChange={(e) => setPublicNetworkData({ ...publicNetworkData, snat_ip: e.target.value })}
+                                />
+                            </div>
+                            <div className="form-group" style={{ marginBottom: 0 }}>
+                                <label className="form-label">DNAT IP</label>
+                                <input
+                                    type="text"
+                                    className="form-input"
+                                    value={publicNetworkData.dnat_ip || ''}
+                                    onChange={(e) => setPublicNetworkData({ ...publicNetworkData, dnat_ip: e.target.value })}
+                                />
+                            </div>
+                            <div className="form-group" style={{ marginBottom: 0 }}>
+                                <label className="form-label">Exposed Ports</label>
+                                <input
+                                    type="text"
+                                    className="form-input"
+                                    value={publicNetworkData.dnat_exposed_ports || ''}
+                                    onChange={(e) => setPublicNetworkData({ ...publicNetworkData, dnat_exposed_ports: e.target.value })}
+                                    placeholder="e.g. 80, 443"
+                                />
+                            </div>
+                            <div className="form-group" style={{ marginBottom: 0 }}>
+                                <label className="form-label">Source Region</label>
+                                <input
+                                    type="text"
+                                    className="form-input"
+                                    value={publicNetworkData.dnat_source_region || ''}
+                                    onChange={(e) => setPublicNetworkData({ ...publicNetworkData, dnat_source_region: e.target.value })}
+                                />
+                            </div>
+                        </div>
+                    ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: 'var(--text-secondary)' }}>Status</span>
+                                <span>
+                                    {publicNetworkData.is_active ? (
+                                        <span className="badge badge-success">Active</span>
+                                    ) : (
+                                        <span className="badge badge-neutral">Inactive</span>
+                                    )}
+                                </span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: 'var(--text-secondary)' }}>SNAT IP</span>
+                                <span>{publicNetworkData.snat_ip || '-'}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: 'var(--text-secondary)' }}>DNAT IP</span>
+                                <span>{publicNetworkData.dnat_ip || '-'}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: 'var(--text-secondary)' }}>Exposed Ports</span>
+                                <span>{publicNetworkData.dnat_exposed_ports || '-'}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: 'var(--text-secondary)' }}>Source Region</span>
+                                <span>{publicNetworkData.dnat_source_region || '-'}</span>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* DNS Records - Editable */}
+                <div className="card">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                        <h3 className="card-title" style={{ margin: 0 }}>
+                            <Shield size={18} style={{ marginRight: '8px' }} /> DNS & SSL
+                        </h3>
+                        {isAdmin && !dnsRecordEditing && (
+                            <button className="btn btn-sm btn-secondary" onClick={() => setDnsRecordEditing(true)}>Edit</button>
+                        )}
+                        {dnsRecordEditing && (
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <button className="btn btn-sm btn-primary" onClick={handleDnsRecordsSave}>Save</button>
+                                <button className="btn btn-sm btn-secondary" onClick={() => {
+                                    setDnsRecordEditing(false);
+                                    setDnsRecordsData(vm.dns_records || []);
+                                }}>Cancel</button>
+                            </div>
+                        )}
+                    </div>
+
+                    {dnsRecordEditing ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                            {dnsRecordsData.map((record, index) => (
+                                <div key={index} className="card-subsection" style={{ padding: '12px', border: '1px solid var(--border-color)', borderRadius: '4px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
+                                            Record #{index + 1}
+                                        </label>
+                                        <button
+                                            className="btn btn-sm btn-danger"
+                                            // style={{ padding: '2px 8px', fontSize: '12px' }}
+                                            onClick={() => handleRemoveDnsRecord(index)}
+                                        >
+                                            <Trash2 size={14} /> Remove
+                                        </button>
+                                    </div>
+
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                        <div className="form-group" style={{ marginBottom: 0 }}>
+                                            <label className="form-label">Internal DNS</label>
+                                            <input
+                                                type="text"
+                                                className="form-input"
+                                                value={record.internal_dns || ''}
+                                                onChange={(e) => handleDnsRecordChange(index, 'internal_dns', e.target.value)}
+                                                placeholder="internal.example.com"
+                                            />
+                                        </div>
+                                        <div className="form-group" style={{ marginBottom: 0 }}>
+                                            <label className="form-label">External DNS</label>
+                                            <input
+                                                type="text"
+                                                className="form-input"
+                                                value={record.external_dns || ''}
+                                                onChange={(e) => handleDnsRecordChange(index, 'external_dns', e.target.value)}
+                                                placeholder="external.example.com"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div style={{ display: 'flex', gap: '16px', marginTop: '8px' }}>
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={record.ssl_enabled || false}
+                                                onChange={(e) => handleDnsRecordChange(index, 'ssl_enabled', e.target.checked)}
+                                            />
+                                            SSL Enabled
+                                        </label>
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={record.is_active || false}
+                                                onChange={(e) => handleDnsRecordChange(index, 'is_active', e.target.checked)}
+                                            />
+                                            Active
+                                        </label>
+                                    </div>
+                                </div>
+                            ))}
+
+                            <button className="btn btn-sm btn-secondary" onClick={handleAddDnsRecord}>
+                                <Plus size={16} style={{ marginRight: '4px' }} /> Add DNS Record
+                            </button>
+                        </div>
+                    ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            {(!vm.dns_records || vm.dns_records.length === 0) ? (
+                                <div style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>No DNS records defined</div>
+                            ) : (
+                                vm.dns_records.map((record, index) => (
+                                    <div key={index} style={{
+                                        padding: '8px',
+                                        borderBottom: index < vm.dns_records.length - 1 ? '1px solid var(--border-color)' : 'none',
+                                        opacity: record.is_active ? 1 : 0.6
+                                    }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                            <strong>{record.external_dns || record.internal_dns || `Record #${index + 1}`}</strong>
+                                            <div style={{ display: 'flex', gap: '8px' }}>
+                                                {record.ssl_enabled && <span className="badge badge-success" style={{ fontSize: '0.7rem' }}>SSL</span>}
+                                                {!record.is_active && <span className="badge badge-neutral" style={{ fontSize: '0.7rem' }}>Inactive</span>}
+                                            </div>
+                                        </div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.9rem' }}>
+                                            {record.internal_dns && (
+                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                    <span style={{ color: 'var(--text-secondary)' }}>Internal:</span>
+                                                    <span>{record.internal_dns}</span>
+                                                </div>
+                                            )}
+                                            {record.external_dns && (
+                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                    <span style={{ color: 'var(--text-secondary)' }}>External:</span>
+                                                    <span>{record.external_dns}</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    )}
+                </div>
+
                 {/* Ownership - Editable */}
                 <div className="card">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
@@ -416,6 +710,7 @@ export default function VMDetail() {
                                         ...manualData,
                                         business_owner_id: vm.business_owner_id || '',
                                         technical_owner_id: vm.technical_owner_id || '',
+                                        division_id: vm.division_id || '',
                                         project_name: vm.project_name || '',
                                         environment: vm.environment || ''
                                     });
@@ -448,6 +743,19 @@ export default function VMDetail() {
                                     <option value="">Select owner...</option>
                                     {owners.map((o) => (
                                         <option key={o.id} value={o.id}>{o.full_name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="form-group" style={{ marginBottom: 0 }}>
+                                <label className="form-label">Division</label>
+                                <select
+                                    className="form-input form-select"
+                                    value={manualData.division_id}
+                                    onChange={(e) => setManualData({ ...manualData, division_id: e.target.value || null })}
+                                >
+                                    <option value="">Select division...</option>
+                                    {divisions.map((d) => (
+                                        <option key={d.id} value={d.id}>{d.name} ({d.department})</option>
                                     ))}
                                 </select>
                             </div>
@@ -494,6 +802,14 @@ export default function VMDetail() {
                             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                 <span style={{ color: 'var(--text-secondary)' }}>Environment</span>
                                 <span>{vm.environment || '-'}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: 'var(--text-secondary)' }}>Division</span>
+                                <span>{vm.division_name || '-'}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: 'var(--text-secondary)' }}>Department</span>
+                                <span>{vm.department || '-'}</span>
                             </div>
                         </div>
                     )}

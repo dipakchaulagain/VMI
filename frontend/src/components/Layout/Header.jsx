@@ -12,6 +12,10 @@ const pageTitles = {
     '/sync': 'Sync Management',
     '/hypervisors': 'Hypervisors',
     '/settings': 'Settings',
+    '/public-networks': 'Public Networks',
+    '/dns-records': 'DNS Records',
+    '/divisions': 'Divisions',
+    '/activity': 'Web Activity',
 };
 
 export default function Header() {

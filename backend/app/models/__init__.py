@@ -7,3 +7,6 @@ from .host import Host
 from .settings import SiteSettings
 from .system_api import SystemApi
 from .audit import AuditLog
+from .public_network import VMPublicNetwork
+from .dns_record import VMDNSRecord
+from .division import Division

@@ -61,7 +61,7 @@ export default function Dashboard() {
         <div className="dashboard">
             {/* Stats Grid */}
             <div className="stats-grid">
-                <div className="stat-card">
+                <Link to="/vms" className="stat-card" style={{ textDecoration: 'none', cursor: 'pointer' }}>
                     <div className="stat-icon primary">
                         <Server size={24} />
                     </div>
@@ -69,9 +69,9 @@ export default function Dashboard() {
                         <h3>{summary?.total_vms || 0}</h3>
                         <p>Total VMs</p>
                     </div>
-                </div>
+                </Link>
 
-                <div className="stat-card">
+                <Link to="/hypervisors" className="stat-card" style={{ textDecoration: 'none', cursor: 'pointer' }}>
                     <div className="stat-icon info">
                         <HardDrive size={24} />
                     </div>
@@ -79,9 +79,9 @@ export default function Dashboard() {
                         <h3>{hostStats?.total_hosts || 0} <span style={{ fontSize: '0.875rem', fontWeight: 400, color: 'var(--text-muted)' }}>({hostStats?.vmware?.count || 0} / {hostStats?.nutanix?.count || 0})</span></h3>
                         <p>Total Hypervisors</p>
                     </div>
-                </div>
+                </Link>
 
-                <div className="stat-card">
+                <Link to="/vms?power_state=ON" className="stat-card" style={{ textDecoration: 'none', cursor: 'pointer' }}>
                     <div className="stat-icon success">
                         <Power size={24} />
                     </div>
@@ -89,9 +89,9 @@ export default function Dashboard() {
                         <h3>{summary?.by_power_state?.ON || 0}</h3>
                         <p>Powered On</p>
                     </div>
-                </div>
+                </Link>
 
-                <div className="stat-card">
+                <Link to="/vms?power_state=OFF" className="stat-card" style={{ textDecoration: 'none', cursor: 'pointer' }}>
                     <div className="stat-icon error">
                         <PowerOff size={24} />
                     </div>
@@ -99,9 +99,9 @@ export default function Dashboard() {
                         <h3>{summary?.by_power_state?.OFF || 0}</h3>
                         <p>Powered Off</p>
                     </div>
-                </div>
+                </Link>
 
-                <div className="stat-card">
+                <Link to="/changes" className="stat-card" style={{ textDecoration: 'none', cursor: 'pointer' }}>
                     <div className="stat-icon warning">
                         <History size={24} />
                     </div>
@@ -109,7 +109,7 @@ export default function Dashboard() {
                         <h3>{recentChanges.length}</h3>
                         <p>Recent Changes</p>
                     </div>
-                </div>
+                </Link>
             </div>
 
             {/* Platform & Network Distribution */}
@@ -120,25 +120,30 @@ export default function Dashboard() {
                         <h3 className="card-title">Platform Distribution</h3>
                     </div>
                     {/* ... existing platform content ... */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                         {Object.entries(summary?.by_platform || {}).map(([platform, count]) => (
-                            <div key={platform} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Link
+                                key={platform}
+                                to={`/vms?platform=${platform}`}
+                                style={{
+                                    display: 'flex',
+                                    justify_content: 'space-between',
+                                    alignItems: 'center',
+                                    padding: '8px 12px',
+                                    borderRadius: 'var(--border-radius-sm)',
+                                    textDecoration: 'none',
+                                    color: 'inherit',
+                                    transition: 'background 0.2s',
+                                    cursor: 'pointer'
+                                }}
+                                className="item-hover"
+                            >
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                     <Cloud size={20} style={{ color: platform === 'nutanix' ? '#10b981' : '#6366f1' }} />
-                                    <span style={{ textTransform: 'capitalize' }}>{platform}</span>
+                                    <span style={{ textTransform: 'capitalize', fontWeight: 500 }}>{platform}</span>
                                 </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                    <span className="badge badge-neutral">{count} VMs</span>
-                                    {isAdmin && (
-                                        <button
-                                            className="btn btn-sm btn-secondary"
-                                            onClick={() => handleSync(platform)}
-                                        >
-                                            <RefreshCw size={14} />
-                                        </button>
-                                    )}
-                                </div>
-                            </div>
+                                <span className="badge badge-neutral">{count} VMs</span>
+                            </Link>
                         ))}
                     </div>
 
@@ -152,22 +157,35 @@ export default function Dashboard() {
                                 Loading...
                             </div>
                         ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                 {(!summary?.by_os_family || Object.keys(summary.by_os_family).length === 0) ? (
                                     <div style={{ textAlign: 'center', padding: '12px', color: 'var(--text-muted)' }}>
                                         No Data
                                     </div>
                                 ) : (
                                     Object.entries(summary.by_os_family).map(([family, count]) => (
-                                        <div key={family} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <Link
+                                            key={family}
+                                            to={`/vms?os_family=${family}`}
+                                            style={{
+                                                display: 'flex',
+                                                justifyContent: 'space-between',
+                                                alignItems: 'center',
+                                                padding: '8px 12px',
+                                                borderRadius: 'var(--border-radius-sm)',
+                                                textDecoration: 'none',
+                                                color: 'inherit',
+                                                transition: 'background 0.2s',
+                                                cursor: 'pointer'
+                                            }}
+                                            className="item-hover"
+                                        >
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                                 <Monitor size={20} style={{ color: family.toLowerCase().includes('windows') ? '#0ea5e9' : (family.toLowerCase().includes('linux') ? '#f59e0b' : 'var(--text-muted)') }} />
-                                                <span style={{ textTransform: 'capitalize' }}>{family}</span>
+                                                <span style={{ textTransform: 'capitalize', fontWeight: 500 }}>{family}</span>
                                             </div>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                                <span className="badge badge-neutral">{count} VMs</span>
-                                            </div>
-                                        </div>
+                                            <span className="badge badge-neutral">{count} VMs</span>
+                                        </Link>
                                     ))
                                 )}
                             </div>
@@ -219,12 +237,27 @@ export default function Dashboard() {
                         <h3 className="card-title">By Cluster</h3>
                     </div>
                     {/* ... existing cluster content ... */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                         {Object.entries(summary?.by_cluster || {}).slice(0, 5).map(([cluster, count]) => (
-                            <div key={cluster} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span style={{ color: 'var(--text-secondary)' }}>{cluster}</span>
+                            <Link
+                                key={cluster}
+                                to={`/vms?cluster=${cluster}`}
+                                style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    padding: '8px 12px',
+                                    borderRadius: 'var(--border-radius-sm)',
+                                    textDecoration: 'none',
+                                    color: 'inherit',
+                                    transition: 'background 0.2s',
+                                    cursor: 'pointer'
+                                }}
+                                className="item-hover"
+                            >
+                                <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>{cluster}</span>
                                 <span className="badge badge-info">{count}</span>
-                            </div>
+                            </Link>
                         ))}
                     </div>
                 </div>

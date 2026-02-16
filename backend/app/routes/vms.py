@@ -2,6 +2,8 @@ from flask import Blueprint, request, jsonify, g
 from datetime import datetime, timezone
 from app import db
 from app.models.vm import VM, VMFact, VMNicFact, VMNicIpFact, VMDiskFact, VMManual, VMTag, VMIpManual, VMCustomField
+from app.models.public_network import VMPublicNetwork
+from app.models.dns_record import VMDNSRecord
 from app.models.owner import Owner
 from app.models.network import VMwareNetwork
 from app.models.host import Host
@@ -29,6 +31,7 @@ def list_vms():
     os_type = request.args.get('os_type', '').strip()
     os_family = request.args.get('os_family', '').strip()
     tag = request.args.get('tag', '').strip()
+    division_id = request.args.get('division_id', type=int)
     include_deleted = request.args.get('include_deleted', 'false').lower() == 'true'
     
     query = VM.query
@@ -100,12 +103,14 @@ def list_vms():
     if host_identifier:
         if not hasattr(query, '_vmfact_joined'):
             query = query.join(VMFact)
+            query._vmfact_joined = True
         query = query.filter(VMFact.host_identifier == host_identifier)
     
     # OS Type filter
     if os_type:
         if not hasattr(query, '_vmfact_joined'):
             query = query.join(VMFact)
+            query._vmfact_joined = True
         query = query.filter(VMFact.os_type.ilike(f'%{os_type}%'))
     
     # OS Family filter
@@ -115,12 +120,9 @@ def list_vms():
             query = query.join(VMFact)
             query._vmfact_joined = True
         
-        # Check if VMManual is already joined (unlikely here but good practice)
-        # Note: We use outerjoin because not all VMs have manual entries
-        # We catch the case where VMManual is missing using a property check specific to this request context if needed,
-        # but standard SQLAlchemy outerjoin is idempotent-ish if done correctly on query construction flow here.
-        # However, to avoid duplicate joins if multiple filters were to use it (none currently do in this block), we can just join.
-        query = query.outerjoin(VMManual)
+        if not hasattr(query, '_manual_joined'):
+            query = query.outerjoin(VMManual)
+            query._manual_joined = True
 
         query = query.filter(
             db.or_(
@@ -140,6 +142,13 @@ def list_vms():
     # Tag filter
     if tag:
         query = query.join(VMTag).filter(VMTag.tag_value.ilike(tag))
+    
+    # Division filter
+    if division_id:
+        if not hasattr(query, '_manual_joined'):
+            query = query.outerjoin(VMManual)
+            query._manual_joined = True
+        query = query.filter(VMManual.division_id == division_id)
     
     # Sorting
     sort_by = request.args.get('sort_by', 'vm_name')
@@ -515,6 +524,17 @@ def update_manual(vm_id):
         manual.environment = data['environment']
     if 'notes' in data:
         manual.notes = data['notes']
+        
+    if 'division_id' in data:
+        div_id = data['division_id']
+        if div_id == '' or div_id is None:
+            manual.division_id = None
+        else:
+            from app.models.division import Division
+            div = Division.query.get(div_id)
+            if not div:
+                return jsonify({'error': 'Division not found'}), 400
+            manual.division_id = div_id
     
     # Override flags and values
     if 'override_power_state' in data:
@@ -709,4 +729,73 @@ def remove_custom_field(vm_id, field_key):
     db.session.delete(cf)
     db.session.commit()
     
-    return jsonify({'message': 'Custom field removed successfully'})
+@vms_bp.route('/<int:vm_id>/public-network', methods=['PUT'])
+@admin_required
+@password_reset_not_required
+def update_public_network(vm_id):
+    """Update public network details for a VM"""
+    vm = VM.query.get_or_404(vm_id)
+    data = request.get_json()
+    
+    pn = vm.public_network
+    if not pn:
+        pn = VMPublicNetwork(vm_id=vm_id)
+        db.session.add(pn)
+    
+    if 'snat_ip' in data:
+        pn.snat_ip = data['snat_ip']
+    if 'dnat_ip' in data:
+        pn.dnat_ip = data['dnat_ip']
+    if 'dnat_exposed_ports' in data:
+        pn.dnat_exposed_ports = data['dnat_exposed_ports']
+    if 'dnat_source_region' in data:
+        pn.dnat_source_region = data['dnat_source_region']
+    if 'is_active' in data:
+        pn.is_active = data['is_active']
+        
+    pn.updated_by = g.current_user.username
+    pn.updated_at = datetime.now(timezone.utc)
+    
+    db.session.commit()
+    
+    log_action('UPDATE', 'VM_PUBLIC_NETWORK', str(vm_id), {'changes': list(data.keys())})
+    
+    return jsonify({'public_network': pn.to_dict(), 'message': 'Public network details updated'})
+
+@vms_bp.route('/<int:vm_id>/dns-records', methods=['PUT'])
+@admin_required
+@password_reset_not_required
+def update_dns_records(vm_id):
+    """Update DNS records for a VM (Replace all)"""
+    vm = VM.query.get_or_404(vm_id)
+    data = request.get_json()
+    
+    # Expecting a list of records
+    if not isinstance(data, list):
+        return jsonify({'error': 'Invalid data format, expected a list of records'}), 400
+
+    # Clear existing records
+    VMDNSRecord.query.filter_by(vm_id=vm_id).delete()
+    
+    new_records = []
+    for record_data in data:
+        dns = VMDNSRecord(
+            vm_id=vm_id,
+            internal_dns=record_data.get('internal_dns'),
+            external_dns=record_data.get('external_dns'),
+            ssl_enabled=record_data.get('ssl_enabled', False),
+            is_active=record_data.get('is_active', True),
+            updated_by=g.current_user.username,
+            updated_at=datetime.now(timezone.utc)
+        )
+        db.session.add(dns)
+        new_records.append(dns)
+    
+    db.session.commit()
+    
+    log_action('UPDATE', 'VM_DNS_RECORDS', str(vm_id), {'count': len(new_records)})
+    
+    return jsonify({
+        'dns_records': [r.to_dict() for r in new_records],
+        'message': 'DNS records updated'
+    })
